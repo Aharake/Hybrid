@@ -16,6 +16,7 @@ import { SummaryScreen } from '@/screens/onboarding/SummaryScreen';
 import { LoadingScreen } from '@/screens/onboarding/LoadingScreen';
 import { PlanPreviewScreen } from '@/screens/onboarding/PlanPreviewScreen';
 import { PaywallScreen } from '@/screens/onboarding/PaywallScreen';
+import { OnboardingAuthScreen } from '@/screens/onboarding/OnboardingAuthScreen';
 
 const Stack = createNativeStackNavigator<OnboardingStackParamList>();
 
@@ -39,6 +40,7 @@ export function OnboardingNavigator() {
       <Stack.Screen name="Loading" component={LoadingScreen} options={{ gestureEnabled: false }} />
       <Stack.Screen name="PlanPreview" component={PlanPreviewScreen} />
       <Stack.Screen name="Paywall" component={PaywallScreen} />
+      <Stack.Screen name="Auth" component={OnboardingAuthScreen} />
     </Stack.Navigator>
   );
 }

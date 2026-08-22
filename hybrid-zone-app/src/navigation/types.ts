@@ -13,4 +13,5 @@ export type OnboardingStackParamList = {
   Loading: undefined;
   PlanPreview: undefined;
   Paywall: undefined;
+  Auth: undefined;
 };

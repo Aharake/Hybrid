@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TrackerTabBar } from '@/components/tracker/TrackerTabBar';
 import { NewSessionSheet } from '@/components/tracker/NewSessionSheet';
@@ -7,6 +7,7 @@ import { RunTrackerOverlay } from '@/components/tracker/RunTrackerOverlay';
 import { RunSetupSheet } from '@/components/tracker/RunSetupSheet';
 import { TrBellIcon, TrChevRightIcon, TrDevicesIcon, TrShieldIcon, TrSignOutIcon, TrSlidersIcon } from '@/icons';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
+import { useAuthStore } from '@/store/authStore';
 
 const SETTINGS = [
   { icon: TrBellIcon, label: 'Push Notifications', value: null },
@@ -16,6 +17,16 @@ const SETTINGS = [
 ];
 
 export function AccountTab() {
+  const signOut = useAuthStore((s) => s.signOut);
+  const user = useAuthStore((s) => s.user);
+
+  const confirmSignOut = () => {
+    Alert.alert('Sign out?', undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: signOut },
+    ]);
+  };
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -23,8 +34,8 @@ export function AccountTab() {
           <View style={styles.avatar}>
             <Text style={styles.avatarEmoji}>👤</Text>
           </View>
-          <Text style={styles.name}>Marcus Vance</Text>
-          <Text style={styles.since}>Elite Member since Jan 2024</Text>
+          <Text style={styles.name}>{user?.name || 'Member'}</Text>
+          <Text style={styles.since}>{user?.email ?? ''}</Text>
         </View>
 
         <View style={styles.statsRow}>
@@ -47,10 +58,10 @@ export function AccountTab() {
           </View>
         </View>
 
-        <View style={styles.signOutBtn}>
+        <Pressable style={styles.signOutBtn} onPress={confirmSignOut}>
           <TrSignOutIcon size={15} color={colors.neutral500} />
           <Text style={styles.signOutText}>Sign Out</Text>
-        </View>
+        </Pressable>
       </ScrollView>
       <TrackerTabBar active="AccountTab" />
       <NewSessionSheet />

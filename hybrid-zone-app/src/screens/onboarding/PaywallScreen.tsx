@@ -1,11 +1,13 @@
 import React from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { useOnboardingStore } from '@/store/onboardingStore';
-import { useRootStore } from '@/store/rootStore';
 import { colors, fonts, radius, typography } from '@/theme/tokens';
 import { CheckCircleBigIcon } from '@/icons';
+import type { OnboardingStackParamList } from '@/navigation/types';
 
 const FEATURES = [
   'Personalized strength + running plan',
@@ -16,13 +18,13 @@ const FEATURES = [
 
 export function PaywallScreen() {
   const { planTier, setField } = useOnboardingStore();
-  const completeOnboarding = useRootStore((s) => s.completeOnboarding);
+  const navigation = useNavigation<NativeStackNavigationProp<OnboardingStackParamList>>();
 
   return (
     <OnboardingScreen
       footer={
         <>
-          <PrimaryButton label="Start free trial" onPress={completeOnboarding} />
+          <PrimaryButton label="Start free trial" onPress={() => navigation.navigate('Auth')} />
           <Pressable style={styles.linkRow} onPress={() => Alert.alert('This is a design prototype.')}>
             <Text style={styles.link}>Restore purchase</Text>
           </Pressable>
