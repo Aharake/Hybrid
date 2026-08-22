@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/PrimaryButton';
-import { useAuthStore } from '@/store/authStore';
+import { isGoogleSignInConfigured, useAuthStore } from '@/store/authStore';
 import { colors, fonts, radius, typography } from '@/theme/tokens';
 
 interface Props {
@@ -18,11 +18,18 @@ export function AuthScreen({ onAuthenticated }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { loading, error, signUp, signIn, clearError } = useAuthStore();
+  const { loading, error, signUp, signIn, signInWithGoogle, clearError } = useAuthStore();
 
   const submit = async () => {
     const ok =
       mode === 'signUp' ? await signUp(email.trim(), password, name.trim()) : await signIn(email.trim(), password);
+    if (ok) {
+      await onAuthenticated();
+    }
+  };
+
+  const submitGoogle = async () => {
+    const ok = await signInWithGoogle();
     if (ok) {
       await onAuthenticated();
     }
@@ -103,6 +110,22 @@ export function AuthScreen({ onAuthenticated }: Props) {
             }}
             variant="ghost"
           />
+
+          {isGoogleSignInConfigured && (
+            <>
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerLabel}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
+              <PrimaryButton
+                label="Continue with Google"
+                onPress={submitGoogle}
+                disabled={loading}
+                color="white"
+              />
+            </>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -124,4 +147,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   error: { fontFamily: fonts.medium, fontSize: 13, color: colors.red, marginBottom: 12, textAlign: 'center' },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 18, gap: 12 },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.track },
+  dividerLabel: { fontFamily: fonts.regular, fontSize: 12.5, color: colors.textDimmer },
 });

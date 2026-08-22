@@ -8,14 +8,17 @@
     "backgroundColor": "#000000",
     "ios": {
       "supportsTablet": false,
-      "backgroundColor": "#000000"
+      "backgroundColor": "#000000",
+      "bundleIdentifier": "com.hybridzone.app"
     },
     "android": {
-      "backgroundColor": "#000000"
+      "backgroundColor": "#000000",
+      "package": "com.hybridzone.app"
     },
     "plugins": [
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      "@react-native-google-signin/google-signin"
     ]
   }
 }

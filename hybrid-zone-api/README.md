@@ -16,6 +16,9 @@ activities, custom exercises, and overview preferences all persist per user).
 
 1. Copy `.env.example` to `.env` and fill in a local (or Railway) `DATABASE_URL`,
    plus a `BETTER_AUTH_SECRET` (generate one with `openssl rand -base64 32`).
+   Google sign-in vars (`GOOGLE_CLIENT_ID_WEB`, `GOOGLE_CLIENT_ID_IOS`,
+   `GOOGLE_CLIENT_ID_ANDROID`, `GOOGLE_CLIENT_SECRET`) are optional — Google
+   sign-in is simply disabled until they're set. See "Google Sign-In setup" below.
 2. Install dependencies:
    ```
    npm install
@@ -41,6 +44,42 @@ activities, custom exercises, and overview preferences all persist per user).
    - `CORS_ORIGINS` — comma-separated origins allowed to call this API (your Expo app's dev tunnel URL and whatever it's served from in production)
 4. Railway builds via Nixpacks (see `railway.json`), running `npm run build` (`tsc` + `prisma generate`) then the start command, which runs `prisma migrate deploy` before booting the server — so every deploy automatically applies any new migrations.
 5. Health check: `GET /health` → `{ ok: true }`.
+
+## Google Sign-In setup
+
+The Expo app signs in with Google natively (on-device SDK → ID token →
+exchanged with Better Auth), not via an OAuth redirect, so you need OAuth
+client IDs registered per platform in Google Cloud Console:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com) → create a
+   project (or use an existing one) → **APIs & Services → Credentials**.
+2. **Configure the OAuth consent screen** first if you haven't (External,
+   fill in app name + your email — it can stay in "Testing" mode while you
+   develop, no Google review needed for that).
+3. **Create 3 OAuth client IDs** (Credentials → Create Credentials → OAuth
+   client ID):
+   - **Web application** — no redirect URIs needed for our flow. This is
+     the one with a client *secret*; it's what the server uses to verify
+     ID tokens. → gives you a Client ID + Client Secret.
+   - **iOS** — Bundle ID: `com.hybridzone.app` (matches `app.json`'s
+     `ios.bundleIdentifier` — change both together if you rename it). →
+     gives you an iOS Client ID (no secret).
+   - **Android** — Package name: `com.hybridzone.app`, plus a SHA-1
+     certificate fingerprint. For an EAS development build, get it with
+     `eas credentials` (select Android → Development → view/generate a
+     keystore, it prints the SHA-1). → gives you an Android Client ID (no
+     secret).
+4. **Set these on the Railway API service** (Settings → Variables):
+   - `GOOGLE_CLIENT_ID_WEB`
+   - `GOOGLE_CLIENT_ID_IOS`
+   - `GOOGLE_CLIENT_ID_ANDROID`
+   - `GOOGLE_CLIENT_SECRET` — the Web client's secret
+5. **Set these in the Expo app's `.env`** (see `hybrid-zone-app/.env.example`):
+   - `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` — same value as `GOOGLE_CLIENT_ID_WEB` above
+   - `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` — same value as `GOOGLE_CLIENT_ID_IOS` above
+
+Until these are set, the "Continue with Google" button simply doesn't
+render — nothing breaks, it's just hidden.
 
 ## API surface
 
@@ -88,7 +127,8 @@ than hand-editing them further. Everything else (`OnboardingAnswers`,
 
 ## Not included yet
 
-- Social login (Apple/Google Sign-In)
+- Apple Sign-In (Google Sign-In is wired — see above)
+- Health data sync (Apple Health / Google Health)
 - Push notifications
 - Analytics
 - Real subscription billing / Cloud Functions equivalent (e.g. App Store /
