@@ -56,6 +56,9 @@ model Account {
   userId                String
   accountId             String
   providerId            String
+  // Scopes account identity per Better Auth 1.7+ — see
+  // https://better-auth.com/docs/guides/1-7-upgrade-guide#account-identity-is-scoped-by-issuer
+  issuer                String
   accessToken           String?
   refreshToken          String?
   idToken               String?
