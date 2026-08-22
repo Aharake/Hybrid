@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Connection URL lives in prisma.config.ts as of Prisma 7 — not here.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Better Auth's own tables. This shape matches Better Auth's default Prisma
+// adapter output for an email/password-only setup. If you add social
+// providers or plugins later, regenerate/diff this against
+// `npx @better-auth/cli generate` rather than hand-editing further.
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  name          String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions Session[]
+  accounts Account[]
+
+  onboardingAnswers OnboardingAnswers?
+  program           Program?
+  workoutLogs       WorkoutLog[]
+  runActivities     RunActivity[]
+  customExercises   CustomExercise[]
+  preferences       Preferences?
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verification")
+}
+
+// ---------------------------------------------------------------------------
+// App data — mirrors the Expo app's onboardingStore/trackerStore shapes so
+// syncing is a near-direct mapping.
+// ---------------------------------------------------------------------------
+
+model OnboardingAnswers {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strengthExp    String?
+  runningExp     String?
+  strengthGoal   String?
+  equipment      String?
+  focus          String?
+  split          String?
+  runningGoal    String?
+  includeRunning Boolean  @default(false)
+  schedule       Json? // { mon: { strength, running }, tue: {...}, ... }
+  planTier       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("onboarding_answers")
+}
+
+model Program {
+  id        String            @id @default(cuid())
+  userId    String            @unique
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  split     String
+  sessions  TrainingSession[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@map("program")
+}
+
+// Named TrainingSession (not Session) to avoid colliding with Better Auth's
+// own Session model above.
+model TrainingSession {
+  id        String   @id @default(cuid())
+  programId String
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  key      String // 'Push' | 'Pull' | 'Legs' | 'Upper', etc.
+  day      String
+  duration Int
+
+  exercises   Exercise[]
+  workoutLogs WorkoutLog[]
+
+  @@unique([programId, key])
+  @@map("training_session")
+}
+
+model Exercise {
+  id                String          @id @default(cuid())
+  trainingSessionId String
+  trainingSession   TrainingSession @relation(fields: [trainingSessionId], references: [id], onDelete: Cascade)
+
+  name     String
+  group    String
+  sets     Int
+  previous Float?
+
+  loggedSets LoggedSet[]
+
+  @@map("exercise")
+}
+
+model WorkoutLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  trainingSessionId String?
+  trainingSession   TrainingSession? @relation(fields: [trainingSessionId], references: [id], onDelete: SetNull)
+  sessionKey        String // denormalized label, kept even if the session is later renamed/deleted
+
+  date DateTime @default(now())
+
+  loggedSets LoggedSet[]
+
+  @@map("workout_log")
+}
+
+model LoggedSet {
+  id           String     @id @default(cuid())
+  workoutLogId String
+  workoutLog   WorkoutLog @relation(fields: [workoutLogId], references: [id], onDelete: Cascade)
+
+  exerciseId   String?
+  exercise     Exercise? @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+  exerciseName String // denormalized, in case the exercise gets swapped/deleted later
+
+  reps   Int
+  weight Float
+
+  @@map("logged_set")
+}
+
+model RunActivity {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type     String
+  date     DateTime @default(now())
+  distance Float
+  duration String
+
+  @@map("run_activity")
+}
+
+model CustomExercise {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  group     String
+  createdAt DateTime @default(now())
+
+  @@map("custom_exercise")
+}
+
+model Preferences {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabledMetrics Json // { home: {...}, strength: {...}, running: {...} }
+  updatedAt      DateTime @updatedAt
+
+  @@map("preferences")
+}
