@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { requireUser } from '../lib/requireUser.js';
 
@@ -17,9 +18,21 @@ const sessionSchema = z.object({
   exercises: z.array(exerciseSchema),
 });
 
+const runDaySchema = z.object({
+  day: z.string(),
+  type: z.string(),
+  distance: z.number(),
+  duration: z.number(),
+  pace: z.string(),
+  zoneTag: z.string(),
+  zoneDetail: z.string(),
+  effort: z.string(),
+});
+
 const programSchema = z.object({
   split: z.string(),
   sessions: z.array(sessionSchema),
+  runDays: z.array(runDaySchema).nullable().optional(),
 });
 
 export async function programRoutes(app: FastifyInstance) {
@@ -44,14 +57,15 @@ export async function programRoutes(app: FastifyInstance) {
       reply.code(400).send({ error: parsed.error.flatten() });
       return;
     }
-    const { split, sessions } = parsed.data;
+    const { split, sessions, runDays } = parsed.data;
+    const runDaysValue = runDays === null ? Prisma.JsonNull : runDays;
 
     const program = await prisma.$transaction(async (tx) => {
       const existing = await tx.program.findUnique({ where: { userId: user.id } });
 
       const programRecord = existing
-        ? await tx.program.update({ where: { id: existing.id }, data: { split } })
-        : await tx.program.create({ data: { userId: user.id, split } });
+        ? await tx.program.update({ where: { id: existing.id }, data: { split, runDays: runDaysValue } })
+        : await tx.program.create({ data: { userId: user.id, split, runDays: runDaysValue } });
 
       if (existing) {
         await tx.trainingSession.deleteMany({ where: { programId: existing.id } });

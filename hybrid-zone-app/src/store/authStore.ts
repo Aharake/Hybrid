@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 import { Platform } from 'react-native';
-import { GoogleSignin, isSuccessResponse } from '@react-native-google-signin/google-signin';
+import type * as GoogleSigninModule from '@react-native-google-signin/google-signin';
 import { apiFetch, clearStoredToken, getStoredToken, setStoredToken } from '@/api/client';
 import { useRootStore } from './rootStore';
+import { useTrackerStore, resetTrackerStore } from './trackerStore';
+import { useSubscriptionStore } from './subscriptionStore';
 
 // Set once Google Cloud Console credentials exist (see README) — the Google
 // button in AuthScreen hides itself until this is present, so this file is
@@ -11,6 +13,16 @@ const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 
 export const isGoogleSignInConfigured = Boolean(GOOGLE_WEB_CLIENT_ID);
+
+// The Google Sign-In package touches a native module (RNGoogleSignin) as
+// soon as it's imported — fine in a custom EAS dev build, but it crashes
+// the whole app on startup under Expo Go, which only ships a fixed set of
+// modules. Loading it lazily, only when Google sign-in actually runs, means
+// the rest of the app keeps working in Expo Go while that isn't set up.
+function loadGoogleSignin(): typeof GoogleSigninModule {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('@react-native-google-signin/google-signin');
+}
 
 export interface AuthUser {
   id: string;
@@ -59,6 +71,8 @@ async function finishAuth(
   }
   await setStoredToken(token);
   set({ loading: false, user: data.user, error: null });
+  useTrackerStore.getState().hydrateFromBackend().catch(() => {});
+  useSubscriptionStore.getState().loginUser(data.user.id).catch(() => {});
   return true;
 }
 
@@ -82,6 +96,8 @@ export const useAuthStore = create<AuthStore>((set) => ({
         if (data?.user) {
           set({ user: data.user });
           useRootStore.getState().setPhase('authenticated');
+          useTrackerStore.getState().hydrateFromBackend().catch(() => {});
+          useSubscriptionStore.getState().loginUser(data.user.id).catch(() => {});
           return;
         }
       }
@@ -132,6 +148,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     }
     set({ loading: true, error: null });
     try {
+      const { GoogleSignin, isSuccessResponse } = loadGoogleSignin();
       GoogleSignin.configure({
         webClientId: GOOGLE_WEB_CLIENT_ID,
         ...(GOOGLE_IOS_CLIENT_ID ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : {}),
@@ -167,12 +184,15 @@ export const useAuthStore = create<AuthStore>((set) => ({
       // best-effort — clear local state regardless
     }
     try {
-      await GoogleSignin.signOut();
+      await loadGoogleSignin().GoogleSignin.signOut();
     } catch {
-      // no-op if there was never a Google session
+      // no-op if there was never a Google session, or the native module
+      // isn't available (e.g. running in Expo Go)
     }
     await clearStoredToken();
     set({ user: null });
+    resetTrackerStore();
+    useSubscriptionStore.getState().logoutUser().catch(() => {});
     useRootStore.getState().setPhase('loggedOut');
   },
 

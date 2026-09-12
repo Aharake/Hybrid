@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
+import { OnboardingGraph } from '@/components/onboarding/OnboardingGraph';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { useOnboardingStore } from '@/store/onboardingStore';
 import { colors, fonts, typography } from '@/theme/tokens';
@@ -33,7 +34,7 @@ function PlanCard({ title, sub, index }: { title: string; sub: string; index: nu
 
 export function PlanPreviewScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<OnboardingStackParamList, 'PlanPreview'>>();
-  const { schedule, split, focus, equipment, strengthGoal, runningGoal } = useOnboardingStore();
+  const { schedule, split, focus, equipment, strengthGoal, runningGoal, includeRunning } = useOnboardingStore();
 
   const rows = useMemo(
     () => buildPlanRows({ schedule, split: split || 'full_body', focus, equipment, strengthGoal, runningGoal }),
@@ -51,6 +52,11 @@ export function PlanPreviewScreen() {
           <PlanCard key={i} title={r.title} sub={r.sub} index={i + 1} />
         ))}
       </View>
+      {includeRunning && (
+        <View style={{ marginTop: 26 }}>
+          <OnboardingGraph />
+        </View>
+      )}
     </OnboardingScreen>
   );
 }

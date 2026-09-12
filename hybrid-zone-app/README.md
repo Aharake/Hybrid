@@ -1,8 +1,12 @@
-# Hybrid Zone — starter scaffold
+# Hyvo — starter scaffold
 
 Expo + React Native + TypeScript. This is a starting point, not the full app —
 it wires up the design system and the pattern to follow for the rest of the
 onboarding flow.
+
+## EAS builds
+
+- [Dev client build (iOS)](https://expo.dev/accounts/aharake/projects/hybrid-zone/builds/f64590de-8f44-49d5-a181-848aca66943d) — includes Google Sign-In, image picker, view-shot, and sharing native modules. Install this instead of Expo Go, then run `npx expo start --dev-client`.
 
 ## Run it
 

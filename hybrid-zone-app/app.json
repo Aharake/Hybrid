@@ -1,24 +1,74 @@
 {
   "expo": {
-    "name": "Hybrid Zone",
+    "name": "Hyvo",
     "slug": "hybrid-zone",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#000000",
+    "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": false,
       "backgroundColor": "#000000",
-      "bundleIdentifier": "com.hybridzone.app"
+      "bundleIdentifier": "com.hybridzone.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "backgroundColor": "#000000",
-      "package": "com.hybridzone.app"
+      "package": "com.hybridzone.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBG4sL3zU5S9aHrTi6Lyfq8SUSuYvZdPCc"
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-font",
       "expo-secure-store",
-      "@react-native-google-signin/google-signin"
-    ]
+      "@react-native-google-signin/google-signin",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Hyvo needs access to your photos so you can add a background to your run share card."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Hyvo tracks your route during a run, including while your phone is locked, so your distance and map stay accurate for the whole run.",
+          "locationWhenInUsePermission": "Hyvo uses your location to track your run's route, distance, and pace.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-task-manager",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8fd42db4-de04-4a34-8b24-5eaa61dec061"
+      }
+    }
   }
 }

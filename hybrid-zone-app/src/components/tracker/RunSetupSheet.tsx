@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts, radius, typography } from '@/theme/trackerTokens';
 import { Sheet } from './Sheet';
 import { useTrackerStore, RunType } from '@/store/trackerStore';
+import { fmtDistance } from '@/engine/units';
 
 const TABS: [RunType, string][] = [
   ['open', 'Open'],
@@ -31,6 +32,7 @@ export function RunSetupSheet() {
     incIntervalReps,
     decIntervalReps,
     startRunFromSetup,
+    unitSystem,
   } = useTrackerStore();
 
   return (
@@ -57,7 +59,7 @@ export function RunSetupSheet() {
               const selected = !distanceCustom && distanceGoal === d;
               return (
                 <Pressable key={d} style={[styles.chip, selected && styles.chipSelected]} onPress={() => selectDistanceGoal(d)}>
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{d} km</Text>
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{fmtDistance(d, unitSystem, 0)}</Text>
                 </Pressable>
               );
             })}
@@ -71,7 +73,7 @@ export function RunSetupSheet() {
                 <Text style={styles.stepBtnText}>–</Text>
               </Pressable>
               <View style={styles.intervalVal}>
-                <Text style={styles.intervalValText}>{customDistanceVal} km</Text>
+                <Text style={styles.intervalValText}>{fmtDistance(customDistanceVal, unitSystem, 0)}</Text>
               </View>
               <Pressable style={styles.stepBtn} onPress={() => adjustCustomDistance(1)}>
                 <Text style={styles.stepBtnText}>+</Text>
@@ -112,7 +114,7 @@ export function RunSetupSheet() {
             </View>
           </View>
           <Text style={styles.desc}>
-            {intervalReps} × {intervalMeters}m = {((intervalMeters * intervalReps) / 1000).toFixed(2)} km total
+            {intervalReps} × {intervalMeters}m = {fmtDistance((intervalMeters * intervalReps) / 1000, unitSystem, 2)} total
           </Text>
         </View>
       )}

@@ -7,12 +7,13 @@ import { TrChevLeftIcon } from '@/icons';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
 import { DAY_FULL_MAP } from '@/engine/calendar';
 import { useTrackerStore, OVERVIEW_METRICS, MetricContext, SessionKey } from '@/store/trackerStore';
+import { metricDisplayValue } from '@/engine/units';
 
 const SECTION_LABELS: Record<MetricContext, string> = { home: 'Home', strength: 'Strength', running: 'Running' };
 
 export function ViewAllOverview() {
   const navigation = useNavigation();
-  const { sessions, viewDay, sets, enabled, toggleMetric } = useTrackerStore();
+  const { sessions, viewDay, sets, enabled, toggleMetric, unitSystem } = useTrackerStore();
 
   const viewDayFull = DAY_FULL_MAP[viewDay];
   const sessionKeys = Object.keys(sessions) as SessionKey[];
@@ -40,21 +41,26 @@ export function ViewAllOverview() {
             <View key={ctx}>
               <Text style={[typography.sectionTitle, styles.sectionSpacing]}>{SECTION_LABELS[ctx]}</Text>
               <View style={isStrength ? styles.strengthRow : styles.metricsGrid}>
-                {OVERVIEW_METRICS[ctx].map((m) => (
-                  <MetricTile
-                    key={m.id}
-                    variant={isStrength ? 'strength' : 'card'}
-                    icon={m.icon}
-                    label={m.label}
-                    value={ctx === 'strength' && m.id === 'done' ? doneLive : m.value}
-                    unit={m.unit}
-                    big={!isStrength && m.big}
-                    bars={m.bars}
-                    toggled={enabled[ctx][m.id]}
-                    onPress={() => toggleMetric(ctx, m.id)}
-                    widthPct={isStrength ? 31 : ctx === 'home' ? (m.big ? 48 : 31) : 48}
-                  />
-                ))}
+                {OVERVIEW_METRICS[ctx].map((m) => {
+                  const rawValue = ctx === 'strength' && m.id === 'done' ? doneLive : m.value;
+                  // Strength-context tiles show the raw stored value, unconverted (matches the source).
+                  const disp = isStrength ? { value: rawValue, unit: m.unit } : metricDisplayValue(rawValue, m.unit, unitSystem);
+                  return (
+                    <MetricTile
+                      key={m.id}
+                      variant={isStrength ? 'strength' : 'card'}
+                      icon={m.icon}
+                      label={m.label}
+                      value={disp.value}
+                      unit={disp.unit}
+                      big={!isStrength && m.big}
+                      bars={m.bars}
+                      toggled={enabled[ctx][m.id]}
+                      onPress={() => toggleMetric(ctx, m.id)}
+                      widthPct={isStrength ? 31 : ctx === 'home' ? (m.big ? 48 : 31) : 48}
+                    />
+                  );
+                })}
               </View>
             </View>
           );

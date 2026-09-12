@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { colors } from '@/theme/tokens';
 import type { OnboardingStackParamList } from './types';
 import { ExperienceScreen } from '@/screens/onboarding/ExperienceScreen';
+import { BiometricsScreen } from '@/screens/onboarding/BiometricsScreen';
 import { StrengthGoalScreen } from '@/screens/onboarding/StrengthGoalScreen';
 import { Motivation1Screen } from '@/screens/onboarding/Motivation1Screen';
 import { EquipmentScreen } from '@/screens/onboarding/EquipmentScreen';
@@ -27,6 +28,7 @@ export function OnboardingNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
       <Stack.Screen name="Experience" component={ExperienceScreen} />
+      <Stack.Screen name="Biometrics" component={BiometricsScreen} />
       <Stack.Screen name="StrengthGoal" component={StrengthGoalScreen} />
       <Stack.Screen name="Motivation1" component={Motivation1Screen} />
       <Stack.Screen name="Equipment" component={EquipmentScreen} />

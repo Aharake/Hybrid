@@ -38,7 +38,7 @@ export function RunningInterstitialScreen() {
       <View style={{ paddingTop: 20 }}>
         <Text style={[typography.title, { color: colors.text, marginBottom: 10 }]}>Interested in running too?</Text>
         <Text style={typography.subtitle}>
-          Hybrid Zone can layer a running plan on top of your strength training — same app, same week, zero extra
+          Hyvo can layer a running plan on top of your strength training — same app, same week, zero extra
           setup.
         </Text>
       </View>

@@ -16,7 +16,7 @@ import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function StrengthTab() {
   const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
-  const { sessions, viewDay, isViewingToday, sets, enabled, setOverviewContext, setActiveSessionKey } = useTrackerStore();
+  const { sessions, viewDay, isViewingToday, sets, enabled, setOverviewContext, setActiveSessionKey, openProgramEditor } = useTrackerStore();
 
   const sessionKeys = Object.keys(sessions) as SessionKey[];
   const viewDayFull = DAY_FULL_MAP[viewDay];
@@ -67,7 +67,23 @@ export function StrengthTab() {
         )}
 
         <View>
-          <Text style={[typography.sectionTitle, { marginBottom: 10 }]}>This Week's Program</Text>
+          <View style={styles.rowBetween}>
+            <Text style={typography.sectionTitle}>This Week's Program</Text>
+            <View style={{ flexDirection: 'row', gap: 14 }}>
+              <Text style={styles.link} onPress={() => navigation.navigate('AnalyticsHub')}>
+                Analytics
+              </Text>
+              <Text
+                style={styles.link}
+                onPress={() => {
+                  openProgramEditor();
+                  navigation.navigate('ProgramEditor');
+                }}
+              >
+                Edit
+              </Text>
+            </View>
+          </View>
           {sessionKeys.map((key, i) => {
             const sess = sessions[key];
             const active = key === viewSessionKey;

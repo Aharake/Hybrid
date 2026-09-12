@@ -9,6 +9,9 @@ import { runActivitiesRoutes } from './routes/runActivities.js';
 import { customExercisesRoutes } from './routes/customExercises.js';
 import { preferencesRoutes } from './routes/preferences.js';
 import { meRoutes } from './routes/me.js';
+import { legalRoutes } from './routes/legal.js';
+import { subscriptionRoutes } from './routes/subscription.js';
+import { revenueCatWebhookRoutes } from './routes/revenueCatWebhook.js';
 
 const app = Fastify({ logger: true });
 
@@ -68,6 +71,14 @@ app.register(workoutLogsRoutes, { prefix: '/api' });
 app.register(runActivitiesRoutes, { prefix: '/api' });
 app.register(customExercisesRoutes, { prefix: '/api' });
 app.register(preferencesRoutes, { prefix: '/api' });
+app.register(subscriptionRoutes, { prefix: '/api' });
+// Public — authenticated by a shared secret header (RevenueCat's own config),
+// not a user session, since RevenueCat calls this server-to-server.
+app.register(revenueCatWebhookRoutes, { prefix: '/api' });
+
+// Public, unauthenticated HTML pages — required by App Store / Play Store
+// review to link to a reachable Privacy Policy and Terms of Service.
+app.register(legalRoutes);
 
 app.get('/health', async () => ({ ok: true }));
 

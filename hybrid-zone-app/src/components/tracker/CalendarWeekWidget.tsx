@@ -2,14 +2,20 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { TrChevLeftIcon, TrChevRightIcon } from '@/icons';
-import { getWeekDays, weekRangeLabel } from '@/engine/calendar';
+import { DayLabel, FULL_TO_DAY_LABEL, getWeekDays, weekRangeLabel } from '@/engine/calendar';
 import { useTrackerStore } from '@/store/trackerStore';
 
 // Matches Tracker (new).html's scheduleWidget() — used identically on Home,
 // Strength, and Running (same view state, shared store fields).
 export function CalendarWeekWidget() {
-  const { viewWeekOffset, viewDay, selectDay, shiftWeek, resetToToday, isViewingToday } = useTrackerStore();
-  const days = getWeekDays(viewWeekOffset);
+  const { viewWeekOffset, viewDay, sessions, runSessions, selectDay, shiftWeek, resetToToday, isViewingToday } = useTrackerStore();
+  const strengthDays = new Set(
+    Object.values(sessions)
+      .map((s) => FULL_TO_DAY_LABEL[s.day])
+      .filter((d): d is DayLabel => !!d),
+  );
+  const runningDays = new Set(Object.keys(runSessions) as DayLabel[]);
+  const days = getWeekDays(viewWeekOffset, strengthDays, runningDays);
 
   return (
     <View style={styles.card}>

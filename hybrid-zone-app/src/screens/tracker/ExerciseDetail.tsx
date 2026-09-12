@@ -8,9 +8,10 @@ import { NewSessionSheet } from '@/components/tracker/NewSessionSheet';
 import { AddSetSheet } from '@/components/tracker/AddSetSheet';
 import { RunTrackerOverlay } from '@/components/tracker/RunTrackerOverlay';
 import { RunSetupSheet } from '@/components/tracker/RunSetupSheet';
-import { TrChevDownIcon, TrChevLeftIcon, TrChevRightIcon, TrHistoryIcon, TrMoreIcon, TrPlusIcon } from '@/icons';
+import { TrChevDownIcon, TrChevLeftIcon, TrChevRightIcon, TrMoreIcon, TrPlusIcon } from '@/icons';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
-import { generateExerciseHistory, buildExerciseGraph, HistorySession } from '@/engine/exerciseHistory';
+import { generateExerciseHistory, buildExerciseGraph, build1RMGraph, HistorySession } from '@/engine/exerciseHistory';
+import { fmtWeight, weightUnitLabel, weightValueOnly, UnitSystem } from '@/engine/units';
 import { useTrackerStore } from '@/store/trackerStore';
 
 const TABS: ['sets' | 'analyze' | '1rm', string][] = [
@@ -21,7 +22,7 @@ const TABS: ['sets' | 'analyze' | '1rm', string][] = [
 
 export function ExerciseDetail() {
   const navigation = useNavigation();
-  const { activeExerciseId, findExerciseById, exerciseDetailTab, selectExerciseTab, openExercise } = useTrackerStore();
+  const { activeExerciseId, findExerciseById, exerciseDetailTab, selectExerciseTab, openExercise, unitSystem } = useTrackerStore();
 
   const ex = findExerciseById(activeExerciseId || '') || findExerciseById('ex1')!;
   const history = useMemo(() => generateExerciseHistory(ex.id, ex.previous), [ex.id, ex.previous]);
@@ -58,19 +59,14 @@ export function ExerciseDetail() {
         {exerciseDetailTab === 'sets' && (
           <View style={{ gap: 12 }}>
             {historyDesc.map((day, di) => (
-              <HistCard key={di} day={day} />
+              <HistCard key={di} day={day} unitSystem={unitSystem} />
             ))}
           </View>
         )}
 
-        {exerciseDetailTab === 'analyze' && <AnalyzeGraph history={history} />}
+        {exerciseDetailTab === 'analyze' && <AnalyzeGraph history={history} unitSystem={unitSystem} />}
 
-        {exerciseDetailTab === '1rm' && (
-          <View style={styles.emptyState}>
-            <TrHistoryIcon size={28} color={colors.neutral500} />
-            <Text style={styles.emptyText}>Your one-rep-max history appears here.</Text>
-          </View>
-        )}
+        {exerciseDetailTab === '1rm' && <OneRMHistory history={history} unitSystem={unitSystem} />}
       </ScrollView>
 
       <Pressable style={styles.fabLog} onPress={() => openExercise(ex.id)}>
@@ -91,7 +87,7 @@ export function ExerciseDetail() {
   );
 }
 
-function HistCard({ day }: { day: HistorySession }) {
+function HistCard({ day, unitSystem }: { day: HistorySession; unitSystem: UnitSystem }) {
   return (
     <View style={styles.histCard}>
       <View style={styles.histHead}>
@@ -105,7 +101,7 @@ function HistCard({ day }: { day: HistorySession }) {
           <Text style={styles.histReps}>
             {st.reps} <Text style={styles.histUnit}>rep</Text>
           </Text>
-          <Text style={styles.histWeight}>{st.weight}</Text>
+          <Text style={styles.histWeight}>{fmtWeight(st.weight, unitSystem, st.weight < 10 ? 1 : 0)}</Text>
           <TrChevRightIcon size={14} color={colors.text} />
         </View>
       ))}
@@ -113,14 +109,14 @@ function HistCard({ day }: { day: HistorySession }) {
   );
 }
 
-function AnalyzeGraph({ history }: { history: HistorySession[] }) {
+function AnalyzeGraph({ history, unitSystem }: { history: HistorySession[]; unitSystem: UnitSystem }) {
   const graph = buildExerciseGraph(history);
   return (
     <View style={styles.graphCard}>
       <View style={styles.graphTop}>
         <View>
           <Text style={styles.graphVal}>
-            {graph.lastWeight} <Text style={styles.graphValUnit}>kg top set</Text>
+            {weightValueOnly(graph.lastWeight, unitSystem)} <Text style={styles.graphValUnit}>{weightUnitLabel(unitSystem)} top set</Text>
           </Text>
           <Text style={styles.graphSub}>Over the last 6 sessions</Text>
         </View>
@@ -142,6 +138,49 @@ function AnalyzeGraph({ history }: { history: HistorySession[] }) {
           </Text>
         ))}
       </View>
+    </View>
+  );
+}
+
+// Estimated (not tested) via the Epley formula from each session's heaviest set.
+function OneRMHistory({ history, unitSystem }: { history: HistorySession[]; unitSystem: UnitSystem }) {
+  const graph = build1RMGraph(history);
+  return (
+    <View style={{ gap: 16 }}>
+      <View style={styles.graphCard}>
+        <View style={styles.graphTop}>
+          <View>
+            <Text style={styles.graphVal}>
+              {weightValueOnly(graph.lastWeight, unitSystem)} <Text style={styles.graphValUnit}>{weightUnitLabel(unitSystem)} est. 1RM</Text>
+            </Text>
+            <Text style={styles.graphSub}>Estimated from your top set each session</Text>
+          </View>
+          <Text style={[styles.graphChange, { color: graph.trendUp ? colors.strength : colors.running }]}>
+            {graph.trendUp ? '↑' : '↓'} {graph.trendUp ? '+' : ''}
+            {graph.pctChange}%
+          </Text>
+        </View>
+        <Svg width="100%" height={graph.height} viewBox={`0 0 ${graph.width} ${graph.height}`}>
+          <Path d={graph.pathD} fill="none" stroke={colors.strength} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+          {graph.points.map((p, i) => (
+            <Circle key={i} cx={p.x} cy={p.y} r={4} fill={colors.bg} stroke={colors.strength} strokeWidth={2.5} />
+          ))}
+        </Svg>
+        <View style={styles.graphLabels}>
+          {history.map((sess, i) => (
+            <Text key={i} style={styles.graphLabel}>
+              {sess.date === 'This week' ? 'Now' : sess.date === 'Last week' ? '1w' : sess.date.replace(' weeks ago', 'w')}
+            </Text>
+          ))}
+        </View>
+      </View>
+      <View style={styles.bestRow}>
+        <Text style={styles.bestLabel}>All-Time Best (est.)</Text>
+        <Text style={styles.bestVal}>{fmtWeight(graph.best, unitSystem, graph.best < 10 ? 1 : 0)}</Text>
+      </View>
+      <Text style={styles.disclaimer}>
+        Estimated using the Epley formula from your heaviest set each session — not a tested max, so treat it as a guide rather than an exact number.
+      </Text>
     </View>
   );
 }
@@ -168,8 +207,10 @@ const styles = StyleSheet.create({
   histReps: { fontFamily: fonts.medium, fontSize: 14, color: colors.text },
   histUnit: { fontSize: 11, color: colors.neutral500, fontFamily: fonts.regular },
   histWeight: { fontFamily: fonts.medium, fontSize: 14, color: colors.text, minWidth: 64, textAlign: 'right' },
-  emptyState: { alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 60, paddingHorizontal: 20 },
-  emptyText: { color: colors.neutral500, fontSize: 13, textAlign: 'center', fontFamily: fonts.regular },
+  bestRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderRadius: radius.lg, paddingVertical: 16, paddingHorizontal: 18 },
+  bestLabel: { fontSize: 13, color: colors.text, fontFamily: fonts.medium },
+  bestVal: { fontFamily: fonts.semiBold, fontSize: 16, color: colors.strength },
+  disclaimer: { fontSize: 11, color: colors.neutral500, lineHeight: 16, paddingHorizontal: 2, fontFamily: fonts.regular },
   graphCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 18 },
   graphTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 },
   graphVal: { fontFamily: fonts.semiBold, fontSize: 24, color: colors.text },

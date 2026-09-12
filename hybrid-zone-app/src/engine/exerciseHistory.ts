@@ -7,7 +7,7 @@ export interface HistorySet {
   num: number;
   time: string;
   reps: number;
-  weight: string;
+  weight: number; // kg — format with engine/units.ts's fmtWeight at render time
 }
 
 export interface HistorySession {
@@ -40,7 +40,7 @@ export function generateExerciseHistory(exId: string, currentWeight: number | nu
       const repVariance = seededRandom(exId + '_r' + i + '_' + s);
       const reps = 6 + Math.floor(repVariance * 6);
       const setWeight = s === setCount - 1 ? Math.max(2.5, sessionWeight - 2.5) : sessionWeight; // last set often a slight drop-off
-      sets.push({ num: s + 1, time: `${7 + s}:0${2 + s * 3} PM`, reps, weight: `${setWeight} kg` });
+      sets.push({ num: s + 1, time: `${7 + s}:0${2 + s * 3} PM`, reps, weight: setWeight });
     }
     const weeksAgo = i;
     sessions.push({
@@ -88,4 +88,36 @@ export function buildExerciseGraph(history: HistorySession[]): ExerciseGraph {
   const lastW = weights[weights.length - 1];
   const pctChange = firstW > 0 ? Math.round(((lastW - firstW) / firstW) * 100) : 0;
   return { points, pathD, lastWeight: lastW, pctChange, trendUp: pctChange >= 0, width: w, height: h };
+}
+
+// Epley formula — an estimate, not a tested max.
+export function estimate1RM(weight: number, reps: number): number {
+  return weight * (1 + reps / 30);
+}
+
+export interface OneRMGraph extends ExerciseGraph {
+  best: number;
+}
+
+export function build1RMGraph(history: HistorySession[]): OneRMGraph {
+  const oneRMs = history.map((sess) => estimate1RM(sess.sets[0].weight, sess.sets[0].reps));
+  const minW = Math.min(...oneRMs);
+  const maxW = Math.max(...oneRMs);
+  const range = Math.max(1, maxW - minW);
+  const w = 300;
+  const h = 130;
+  const padX = 16;
+  const padY = 16;
+  const stepX = (w - padX * 2) / (history.length - 1);
+  const points: GraphPoint[] = oneRMs.map((val, i) => ({
+    x: padX + i * stepX,
+    y: padY + (1 - (val - minW) / range) * (h - padY * 2),
+    weight: val,
+  }));
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const firstRM = oneRMs[0];
+  const lastRM = oneRMs[oneRMs.length - 1];
+  const best = Math.max(...oneRMs);
+  const pctChange = firstRM > 0 ? Math.round(((lastRM - firstRM) / firstRM) * 100) : 0;
+  return { points, pathD, lastWeight: lastRM, pctChange, trendUp: pctChange >= 0, width: w, height: h, best };
 }

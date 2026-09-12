@@ -32,6 +32,7 @@ model User {
   runActivities     RunActivity[]
   customExercises   CustomExercise[]
   preferences       Preferences?
+  subscription      Subscription?
 
   @@map("user")
 }
@@ -94,6 +95,9 @@ model OnboardingAnswers {
   id             String   @id @default(cuid())
   userId         String   @unique
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  age            Int?
+  weightKg       Float?
+  heightCm       Float?
   strengthExp    String?
   runningExp     String?
   strengthGoal   String?
@@ -116,6 +120,7 @@ model Program {
   user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   split     String
   sessions  TrainingSession[]
+  runDays   Json? // [{day, type, distance, duration, pace, zoneTag, zoneDetail, effort}] — the weekly run schedule chosen alongside the strength split in Program Editor
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
 
@@ -195,6 +200,7 @@ model RunActivity {
   date     DateTime @default(now())
   distance Float
   duration String
+  route    Json? // [{latitude, longitude, timestamp}] captured via GPS — null for runs logged without location
 
   @@map("run_activity")
 }
@@ -218,4 +224,21 @@ model Preferences {
   updatedAt      DateTime @updatedAt
 
   @@map("preferences")
+}
+
+// Mirrors RevenueCat's view of this user's subscription — kept server-side
+// (updated by the RevenueCat webhook) so subscription status is available
+// even before the client SDK has synced, and consistent across devices.
+model Subscription {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entitlementId String // e.g. "pro" — the RevenueCat entitlement identifier
+  isActive      Boolean   @default(false)
+  productId     String?
+  store         String? // APP_STORE | PLAY_STORE | ...
+  expiresAt     DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  @@map("subscription")
 }

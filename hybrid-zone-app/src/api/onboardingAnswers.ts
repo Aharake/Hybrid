@@ -8,6 +8,9 @@ export async function syncOnboardingAnswers(fields: OnboardingFields): Promise<v
   await apiFetchJson('/api/onboarding-answers', {
     method: 'PUT',
     body: JSON.stringify({
+      age: fields.age,
+      weightKg: fields.weightKg,
+      heightCm: fields.heightCm,
       strengthExp: fields.strengthExp,
       runningExp: fields.includeRunning ? fields.runningExp : null,
       strengthGoal: fields.strengthGoal,

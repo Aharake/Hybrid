@@ -8,6 +8,7 @@ import { useOnboardingStore } from '@/store/onboardingStore';
 import { colors, fonts, radius, typography } from '@/theme/tokens';
 import { CheckCircleBigIcon } from '@/icons';
 import type { OnboardingStackParamList } from '@/navigation/types';
+import { useSubscriptionStore, isRevenueCatConfigured } from '@/store/subscriptionStore';
 
 const FEATURES = [
   'Personalized strength + running plan',
@@ -19,13 +20,23 @@ const FEATURES = [
 export function PaywallScreen() {
   const { planTier, setField } = useOnboardingStore();
   const navigation = useNavigation<NativeStackNavigationProp<OnboardingStackParamList>>();
+  const restore = useSubscriptionStore((s) => s.restore);
+
+  const handleRestore = async () => {
+    if (!isRevenueCatConfigured) {
+      Alert.alert('This is a design prototype.');
+      return;
+    }
+    const result = await restore();
+    Alert.alert(result.ok ? 'Restored' : 'Restore failed', result.ok ? 'Your purchases have been restored.' : result.error);
+  };
 
   return (
     <OnboardingScreen
       footer={
         <>
           <PrimaryButton label="Start free trial" onPress={() => navigation.navigate('Auth')} />
-          <Pressable style={styles.linkRow} onPress={() => Alert.alert('This is a design prototype.')}>
+          <Pressable style={styles.linkRow} onPress={handleRestore}>
             <Text style={styles.link}>Restore purchase</Text>
           </Pressable>
         </>

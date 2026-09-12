@@ -5,6 +5,9 @@ import { prisma } from '../lib/prisma.js';
 import { requireUser } from '../lib/requireUser.js';
 
 const bodySchema = z.object({
+  age: z.number().int().nullable().optional(),
+  weightKg: z.number().nullable().optional(),
+  heightCm: z.number().nullable().optional(),
   strengthExp: z.string().nullable().optional(),
   runningExp: z.string().nullable().optional(),
   strengthGoal: z.string().nullable().optional(),

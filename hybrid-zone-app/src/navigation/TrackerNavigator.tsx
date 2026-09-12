@@ -11,6 +11,18 @@ import { RunningTab } from '@/screens/tracker/RunningTab';
 import { ViewAllOverview } from '@/screens/tracker/ViewAllOverview';
 import { AllActivities } from '@/screens/tracker/AllActivities';
 import { AccountTab } from '@/screens/tracker/AccountTab';
+import { CustomWorkoutScreen } from '@/screens/tracker/CustomWorkoutScreen';
+import { ProgramEditorScreen } from '@/screens/tracker/ProgramEditorScreen';
+import { AnalyticsHubScreen } from '@/screens/tracker/AnalyticsHubScreen';
+import { AchievementsHubScreen } from '@/screens/tracker/AchievementsHubScreen';
+import { HelpSupportScreen } from '@/screens/tracker/HelpSupportScreen';
+import { AboutScreen } from '@/screens/tracker/AboutScreen';
+import { UpgradeScreen } from '@/screens/tracker/UpgradeScreen';
+import { RunDetailScreen } from '@/screens/tracker/RunDetailScreen';
+import { StrengthDetailScreen } from '@/screens/tracker/StrengthDetailScreen';
+import { OtherActivityDetailScreen } from '@/screens/tracker/OtherActivityDetailScreen';
+import { LogActivityFormScreen } from '@/screens/tracker/LogActivityFormScreen';
+import { RunShareCardScreen } from '@/screens/tracker/RunShareCardScreen';
 
 const Stack = createNativeStackNavigator<TrackerStackParamList>();
 
@@ -30,6 +42,18 @@ export function TrackerNavigator() {
       <Stack.Screen name="ViewAllOverview" component={ViewAllOverview} />
       <Stack.Screen name="AllActivities" component={AllActivities} />
       <Stack.Screen name="AccountTab" component={AccountTab} />
+      <Stack.Screen name="CustomWorkout" component={CustomWorkoutScreen} />
+      <Stack.Screen name="ProgramEditor" component={ProgramEditorScreen} />
+      <Stack.Screen name="AnalyticsHub" component={AnalyticsHubScreen} />
+      <Stack.Screen name="AchievementsHub" component={AchievementsHubScreen} />
+      <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
+      <Stack.Screen name="About" component={AboutScreen} />
+      <Stack.Screen name="Upgrade" component={UpgradeScreen} />
+      <Stack.Screen name="RunDetail" component={RunDetailScreen} />
+      <Stack.Screen name="StrengthDetail" component={StrengthDetailScreen} />
+      <Stack.Screen name="OtherActivityDetail" component={OtherActivityDetailScreen} />
+      <Stack.Screen name="LogActivityForm" component={LogActivityFormScreen} />
+      <Stack.Screen name="RunShareCard" component={RunShareCardScreen} />
     </Stack.Navigator>
   );
 }

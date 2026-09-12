@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hybrid-zone-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "hybrid-zone-api", "run", "dev"],
+      "port": 4000
+    }
+  ]
+}

@@ -18,6 +18,9 @@ import { Equipment, RunningGoal, SplitValue, StrengthGoal } from '@/engine/planP
 import { FocusOption } from '@/engine/split';
 
 export interface OnboardingFields {
+  age: number;
+  weightKg: number;
+  heightCm: number;
   strengthExp: Level | null;
   includeRunning: boolean;
   runningExp: Level | null;
@@ -46,6 +49,9 @@ interface OnboardingStore extends OnboardingFields {
 }
 
 const initialFields: OnboardingFields = {
+  age: 25,
+  weightKg: 70,
+  heightCm: 170,
   strengthExp: null,
   includeRunning: false,
   runningExp: null,

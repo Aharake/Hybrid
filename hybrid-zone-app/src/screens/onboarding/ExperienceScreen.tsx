@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Image, Text } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
@@ -21,10 +21,15 @@ export function ExperienceScreen() {
         <PrimaryButton
           label="Continue"
           disabled={!strengthExp || !runningExp}
-          onPress={() => navigation.navigate('StrengthGoal')}
+          onPress={() => navigation.navigate('Biometrics')}
         />
       }
     >
+      <Image
+        source={require('../../../assets/logo-mark.png')}
+        style={{ width: 30, height: 30, marginBottom: 14 }}
+        resizeMode="contain"
+      />
       <Text style={[typography.title, { color: colors.text, marginBottom: 10 }]}>Where are you starting from?</Text>
       <Text style={[typography.subtitle, { marginBottom: 26 }]}>This helps us calibrate your starting intensity.</Text>
       <ExperienceCard

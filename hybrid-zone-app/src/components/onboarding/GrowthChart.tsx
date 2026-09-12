@@ -38,7 +38,7 @@ export function GrowthChart() {
           <Circle cx={320} cy={167} r={4} fill="#5c5c60" />
         </Svg>
         <View style={styles.pillTop}>
-          <Text style={styles.pillTopText}>With Hybrid Zone</Text>
+          <Text style={styles.pillTopText}>With Hyvo</Text>
         </View>
         <View style={styles.pillGhost}>
           <Text style={styles.pillGhostText}>Without it</Text>

@@ -19,6 +19,10 @@ export const DAY_FULL_MAP: Record<DayLabel, string> = {
 export const TODAY_DAY_SHORT: DayLabel = 'Sat';
 export const TODAY_DAY_FULL = DAY_FULL_MAP[TODAY_DAY_SHORT];
 
+export const FULL_TO_DAY_LABEL: Record<string, DayLabel> = Object.fromEntries(
+  DAY_LABELS.map((label) => [DAY_FULL_MAP[label], label]),
+) as Record<string, DayLabel>;
+
 export const WEEKLY_PATTERN: Record<DayLabel, { strength: boolean; running: boolean }> = {
   Mon: { strength: true, running: false },
   Tue: { strength: false, running: true },
@@ -47,7 +51,11 @@ export interface WeekDay {
   isToday: boolean;
 }
 
-export function getWeekDays(weekOffset: number): WeekDay[] {
+// strengthDays/runningDays override WEEKLY_PATTERN's static flags with the
+// user's actual current program (sessions[key].day / Object.keys(runSessions),
+// kept live via the Program Editor) — falls back to the static pattern only
+// where a set isn't provided (e.g. onboarding, before any program exists).
+export function getWeekDays(weekOffset: number, strengthDays?: Set<DayLabel>, runningDays?: Set<DayLabel>): WeekDay[] {
   const monday = new Date(BASE_MONDAY.getTime());
   monday.setDate(monday.getDate() + weekOffset * 7);
   return DAY_LABELS.map((label, i) => {
@@ -59,8 +67,8 @@ export function getWeekDays(weekOffset: number): WeekDay[] {
       date: String(d.getDate()),
       month: d.getMonth(),
       year: d.getFullYear(),
-      strength: pattern.strength,
-      running: pattern.running,
+      strength: strengthDays ? strengthDays.has(label) : pattern.strength,
+      running: runningDays ? runningDays.has(label) : pattern.running,
       isToday: weekOffset === 0 && label === TODAY_DAY_SHORT,
     };
   });

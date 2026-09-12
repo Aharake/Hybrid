@@ -11,6 +11,18 @@ export type TrackerStackParamList = {
   ViewAllOverview: undefined;
   AllActivities: undefined;
   AccountTab: undefined;
+  CustomWorkout: undefined;
+  ProgramEditor: undefined;
+  AnalyticsHub: undefined;
+  AchievementsHub: undefined;
+  HelpSupport: undefined;
+  About: undefined;
+  Upgrade: undefined;
+  RunDetail: undefined;
+  StrengthDetail: undefined;
+  OtherActivityDetail: undefined;
+  LogActivityForm: undefined;
+  RunShareCard: undefined;
 };
 
 export const TAB_ROUTES = ['HomeTab', 'StrengthTab', 'RunningTab', 'AccountTab'] as const;

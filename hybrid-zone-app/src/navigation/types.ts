@@ -1,5 +1,6 @@
 export type OnboardingStackParamList = {
   Experience: undefined;
+  Biometrics: undefined;
   StrengthGoal: undefined;
   Motivation1: undefined;
   Equipment: undefined;

@@ -382,6 +382,54 @@ export function TrShieldIcon({ size = 17, color = '#f5f5f6' }: IconProps) {
   );
 }
 
+export function TrPencilIcon({ size = 14, color = '#f5f5f6' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M4 20l1-4.5L16.5 4a1.5 1.5 0 0 1 2.1 0l1.4 1.4a1.5 1.5 0 0 1 0 2.1L8.5 19 4 20z" />
+      <Path d="M14.5 6.5l3 3" />
+    </Svg>
+  );
+}
+
+export function TrHelpIcon({ size = 17, color = '#f5f5f6' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <Circle cx={12} cy={12} r={9} />
+      <Path d="M9.5 9.2a2.5 2.5 0 1 1 3.4 2.3c-.9.4-1.4 1-1.4 2" />
+      <Path d="M12 17h.01" />
+    </Svg>
+  );
+}
+
+export function TrInfoIcon({ size = 17, color = '#f5f5f6' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <Circle cx={12} cy={12} r={9} />
+      <Path d="M12 11v6M12 7.5h.01" />
+    </Svg>
+  );
+}
+
+export function TrDownloadIcon({ size = 17, color = '#f5f5f6' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M12 3v12M7 10l5 5 5-5" />
+      <Path d="M4 19h16" />
+    </Svg>
+  );
+}
+
+export function TrShareIcon({ size = 17, color = '#f5f5f6' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <Circle cx={18} cy={5} r={2.5} />
+      <Circle cx={6} cy={12} r={2.5} />
+      <Circle cx={18} cy={19} r={2.5} />
+      <Path d="M8.3 10.7l7.4-4.2M8.3 13.3l7.4 4.2" />
+    </Svg>
+  );
+}
+
 export function TrSignOutIcon({ size = 15, color = '#f5f5f6' }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">

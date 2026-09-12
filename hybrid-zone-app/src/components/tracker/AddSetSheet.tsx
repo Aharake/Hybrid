@@ -4,6 +4,7 @@ import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { TrClockIcon, TrPlusIcon } from '@/icons';
 import { Sheet } from './Sheet';
 import { useTrackerStore } from '@/store/trackerStore';
+import { fmtWeight, weightUnitLabel } from '@/engine/units';
 
 // Matches Tracker (new).html's addSetSheet() — reached from ExerciseDetail's FAB /
 // "Log Today's Workout" button (openDetailModal → openExercise(activeExerciseId)).
@@ -22,6 +23,7 @@ export function AddSetSheet() {
     decReps,
     addSet,
     closeExerciseModal,
+    unitSystem,
   } = useTrackerStore();
 
   if (!activeExerciseId) return null;
@@ -46,7 +48,7 @@ export function AddSetSheet() {
         </View>
         <View>
           <Text style={styles.stepperLbl}>Previous Session</Text>
-          <Text style={styles.prevVal}>{ex.previous ? `${ex.previous} kg` : '—'}</Text>
+          <Text style={styles.prevVal}>{ex.previous ? fmtWeight(ex.previous, unitSystem) : '—'}</Text>
         </View>
       </View>
 
@@ -55,7 +57,7 @@ export function AddSetSheet() {
           {exSets.map((s) => (
             <View key={s.num} style={styles.chip}>
               <Text style={[styles.stepperLbl, { fontSize: 9 }]}>Set {s.num}</Text>
-              <Text style={styles.chipVal}>{s.weight} kg</Text>
+              <Text style={styles.chipVal}>{fmtWeight(s.weight, unitSystem)}</Text>
               <Text style={styles.chipSub}>× {s.reps} reps</Text>
             </View>
           ))}
@@ -64,7 +66,7 @@ export function AddSetSheet() {
 
       <View style={styles.inputsRow}>
         <View style={{ flex: 1, gap: 5 }}>
-          <Text style={styles.stepperLbl}>Weight (kg)</Text>
+          <Text style={styles.stepperLbl}>Weight ({weightUnitLabel(unitSystem)})</Text>
           <View style={styles.stepperRow}>
             <Pressable style={styles.stepBtn} onPress={decWeight}>
               <Text style={styles.stepBtnText}>–</Text>

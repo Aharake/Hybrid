@@ -1,15 +1,15 @@
 import React, { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import Svg, { Circle, Path } from 'react-native-svg';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { TrLayersIcon, TrPlayIcon } from '@/icons';
 import { fmtClock } from '@/engine/trackerFormat';
+import { distanceUnitLabel, distanceValueOnly, fmtDistance, fmtPaceFromSecPerKm, UnitSystem } from '@/engine/units';
 import { useTrackerStore } from '@/store/trackerStore';
+import { RunRouteMap } from './RunRouteMap';
 
 const HANDLE_SIZE = 58;
-const ROUTE_PATH = 'M70 330 L70 270 L150 270 L150 210 L110 210 L110 150 L200 150 L200 190 L180 190';
 
 function SlideToStart({ onComplete }: { onComplete: () => void }) {
   const [trackWidth, setTrackWidth] = React.useState(0);
@@ -64,13 +64,26 @@ export function RunTrackerOverlay() {
     intervalMeters,
     intervalReps,
     closeRunTracker,
+    finishRun,
     beginRunCountdown,
     tickCountdown,
     tickRun,
     toggleRunPause,
     openRunSetup,
     countdownVal,
+    unitSystem,
   } = useTrackerStore();
+
+  const handleDiscard = () => {
+    if (run.elapsed > 5) {
+      Alert.alert('Discard this run?', "It won't be saved.", [
+        { text: 'Keep going', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: closeRunTracker },
+      ]);
+    } else {
+      closeRunTracker();
+    }
+  };
 
   useEffect(() => {
     if (runStatus !== 'countdown') return;
@@ -89,23 +102,23 @@ export function RunTrackerOverlay() {
   const isActive = runStatus === 'running' || runStatus === 'paused';
   const hasGoal = runType === 'distance';
   const hasInterval = runType === 'interval';
-  const goalPillText = runType === 'open' ? 'Set a Goal' : runType === 'distance' ? `${distanceGoal} km Goal` : `${intervalReps} × ${intervalMeters}m`;
+  const goalPillText =
+    runType === 'open' ? 'Set a Goal' : runType === 'distance' ? `${fmtDistance(distanceGoal, unitSystem, 0)} Goal` : `${intervalReps} × ${intervalMeters}m`;
   const toGoal = Math.max(0, distanceGoal - run.distance);
 
   return (
     <View style={styles.overlay}>
       <View style={styles.mapFull}>
-        <View style={styles.mapBgWrap}>
-          <Text style={styles.mapBgText}>Live map</Text>
-        </View>
-        {isActive && (
-          <Svg width="100%" height="100%" viewBox="0 0 300 400" preserveAspectRatio="none" style={StyleSheet.absoluteFillObject}>
-            <Path d={ROUTE_PATH} fill="none" stroke={colors.running} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
-          </Svg>
+        {run.route.length > 1 ? (
+          <RunRouteMap route={run.route} live style={StyleSheet.absoluteFill} />
+        ) : (
+          <View style={styles.mapBgWrap}>
+            <Text style={styles.mapBgText}>{isActive ? 'Finding GPS…' : 'Live map'}</Text>
+          </View>
         )}
 
         <View style={styles.topRow}>
-          <Pressable style={styles.iconBtn} onPress={closeRunTracker}>
+          <Pressable style={styles.iconBtn} onPress={handleDiscard}>
             <Text style={styles.iconBtnText}>✕</Text>
           </Pressable>
           <View style={styles.statusPills}>
@@ -126,15 +139,15 @@ export function RunTrackerOverlay() {
 
         {isActive && (
           <View style={styles.distOverlay} pointerEvents="none">
-            <Text style={styles.distNum}>{run.distance.toFixed(2)}</Text>
-            <Text style={styles.distLbl}>Distance (km)</Text>
+            <Text style={styles.distNum}>{distanceValueOnly(run.distance, unitSystem, 2)}</Text>
+            <Text style={styles.distLbl}>Distance ({distanceUnitLabel(unitSystem)})</Text>
           </View>
         )}
 
         {isActive && hasGoal && (
           <View style={styles.toGoalRow} pointerEvents="none">
             <View style={styles.toGoalBadge}>
-              <Text style={styles.toGoalVal}>{toGoal.toFixed(1)} km</Text>
+              <Text style={styles.toGoalVal}>{fmtDistance(toGoal, unitSystem)}</Text>
               <Text style={styles.toGoalLbl}>to Goal</Text>
             </View>
           </View>
@@ -152,7 +165,7 @@ export function RunTrackerOverlay() {
         {runStatus === 'countdown' && <Text style={styles.getReady}>Get ready…</Text>}
         {runStatus === 'running' && (
           <>
-            <StatsRow run={run} hasInterval={hasInterval} intervalReps={intervalReps} />
+            <StatsRow run={run} hasInterval={hasInterval} intervalReps={intervalReps} unitSystem={unitSystem} />
             <Pressable style={[styles.btnFilled, { marginTop: 0 }]} onPress={toggleRunPause}>
               <Text style={styles.btnFilledText}>Pause</Text>
             </Pressable>
@@ -160,9 +173,9 @@ export function RunTrackerOverlay() {
         )}
         {runStatus === 'paused' && (
           <>
-            <StatsRow run={run} hasInterval={hasInterval} intervalReps={intervalReps} />
+            <StatsRow run={run} hasInterval={hasInterval} intervalReps={intervalReps} unitSystem={unitSystem} />
             <View style={styles.btnRow}>
-              <Pressable style={styles.btnOutline} onPress={closeRunTracker}>
+              <Pressable style={styles.btnOutline} onPress={finishRun}>
                 <Text style={styles.btnOutlineText}>Finish</Text>
               </Pressable>
               <Pressable style={styles.btnFilled} onPress={toggleRunPause}>
@@ -176,12 +189,23 @@ export function RunTrackerOverlay() {
   );
 }
 
-function StatsRow({ run, hasInterval, intervalReps }: { run: { elapsed: number; intervalCount: number }; hasInterval: boolean; intervalReps: number }) {
+function StatsRow({
+  run,
+  hasInterval,
+  intervalReps,
+  unitSystem,
+}: {
+  run: { elapsed: number; intervalCount: number };
+  hasInterval: boolean;
+  intervalReps: number;
+  unitSystem: UnitSystem;
+}) {
   return (
     <View style={styles.statsRow}>
       <View style={styles.statMini}>
-        <Text style={styles.statMiniVal}>5'42"</Text>
-        <Text style={styles.statMiniLbl}>Pace /km</Text>
+        {/* 342 sec/km is a fixed mock pace, matching the source — this run tracker has no real GPS/pace input. */}
+        <Text style={styles.statMiniVal}>{fmtPaceFromSecPerKm(342, unitSystem)}</Text>
+        <Text style={styles.statMiniLbl}>Pace /{distanceUnitLabel(unitSystem)}</Text>
       </View>
       <View style={styles.statMini}>
         <Text style={styles.statMiniVal}>{fmtClock(run.elapsed)}</Text>

@@ -45,4 +45,17 @@ export const auth = betterAuth({
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  advanced: {
+    // Better Auth still sets a session cookie by default even though we
+    // only use it via the bearer plugin above. iOS/Android's native HTTP
+    // stack (which RN's fetch sits on, unlike a browser's fetch) silently
+    // persists and resends that cookie — which flips on Better Auth's
+    // CSRF/origin-check requirement, and then fails it because native
+    // fetch never sends an Origin header (there's no browser origin to
+    // send). CSRF protection exists to stop a browser tab on another site
+    // from riding a user's cookies to our API — that attack surface
+    // doesn't exist for a native app, so it's safe to turn off rather than
+    // fight the cookie jar.
+    disableCSRFCheck: true,
+  },
 });

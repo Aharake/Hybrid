@@ -1,3 +1,4 @@
+import '@/engine/locationTask'; // registers the background run-tracking task — must load before anything else
 import React, { useEffect } from 'react';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -11,6 +12,7 @@ import { useAppFonts } from '@/theme/fonts';
 import { colors } from '@/theme/tokens';
 import { useRootStore } from '@/store/rootStore';
 import { useAuthStore } from '@/store/authStore';
+import { useSubscriptionStore } from '@/store/subscriptionStore';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -19,10 +21,14 @@ export default function App() {
   const phase = useRootStore((s) => s.phase);
   const setPhase = useRootStore((s) => s.setPhase);
   const bootstrap = useAuthStore((s) => s.bootstrap);
+  const configureSubscriptions = useSubscriptionStore((s) => s.configure);
 
   useEffect(() => {
-    bootstrap();
-  }, [bootstrap]);
+    // Configure RevenueCat first (no-op until it's set up — see
+    // subscriptionStore.ts) so bootstrap's logIn call below has a
+    // configured SDK to attach the restored session to.
+    configureSubscriptions().finally(() => bootstrap());
+  }, [configureSubscriptions, bootstrap]);
 
   useEffect(() => {
     if ((fontsLoaded || fontError) && phase !== 'checking') {

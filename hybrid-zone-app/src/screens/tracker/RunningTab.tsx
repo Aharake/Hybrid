@@ -13,14 +13,15 @@ import { RunSetupSheet } from '@/components/tracker/RunSetupSheet';
 import { TrPlayIcon, TrRunSmallIcon, TrSlidersIcon } from '@/icons';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
 import { DAY_FULL_MAP } from '@/engine/calendar';
-import { useTrackerStore, OVERVIEW_METRICS, RUN_SESSIONS } from '@/store/trackerStore';
+import { useTrackerStore, OVERVIEW_METRICS } from '@/store/trackerStore';
+import { fmtDistance, metricDisplayValue } from '@/engine/units';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function RunningTab() {
   const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
-  const { viewDay, isViewingToday, enabled, setOverviewContext, openRunTracker, openRunSetup } = useTrackerStore();
+  const { runSessions, viewDay, isViewingToday, enabled, setOverviewContext, openRunTracker, openRunSetup, unitSystem } = useTrackerStore();
 
-  const viewRun = RUN_SESSIONS[viewDay] || null;
+  const viewRun = runSessions[viewDay] || null;
   const dayLabel = isViewingToday() ? 'Today' : DAY_FULL_MAP[viewDay];
   const today = isViewingToday();
   const runningMetrics = OVERVIEW_METRICS.running.filter((m) => enabled.running[m.id]);
@@ -54,13 +55,13 @@ export function RunningTab() {
             <View style={styles.statsRow}>
               {viewRun ? (
                 <>
-                  <HeroStat val={`${viewRun.distance} km`} lbl="Target" />
+                  <HeroStat val={fmtDistance(viewRun.distance, unitSystem)} lbl="Target" />
                   <HeroStat val={`${viewRun.duration} min`} lbl="Duration" />
                   <HeroStat val={viewRun.pace} lbl="Target pace" />
                 </>
               ) : (
                 <>
-                  <HeroStat val="12.4 km" lbl="This week" />
+                  <HeroStat val={fmtDistance(12.4, unitSystem)} lbl="This week" />
                   <HeroStat val="5'12&quot;" lbl="Avg pace" />
                   <HeroStat val="62°F" lbl="Clear skies" />
                 </>
@@ -94,9 +95,10 @@ export function RunningTab() {
             </Text>
           </View>
           <View style={styles.metricsGrid}>
-            {runningMetrics.map((m) => (
-              <MetricTile key={m.id} icon={m.icon} label={m.label} value={m.value} unit={m.unit} widthPct={48} />
-            ))}
+            {runningMetrics.map((m) => {
+              const disp = metricDisplayValue(m.value, m.unit, unitSystem);
+              return <MetricTile key={m.id} icon={m.icon} label={m.label} value={disp.value} unit={disp.unit} widthPct={48} />;
+            })}
           </View>
         </View>
 

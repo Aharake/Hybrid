@@ -1,22 +1,24 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TrackerTabBar } from '@/components/tracker/TrackerTabBar';
 import { FilterSheet } from '@/components/tracker/FilterSheet';
 import { MetricIcon } from '@/components/tracker/iconMap';
 import { TrChevDownIcon, TrChevLeftIcon, TrHistoryIcon } from '@/icons';
 import { colors, fonts } from '@/theme/trackerTokens';
-import { useTrackerStore, ALL_ACTIVITIES, ACTIVITY_ICONS, ActivityType } from '@/store/trackerStore';
+import { useTrackerStore, ACTIVITY_ICONS, ActivityType } from '@/store/trackerStore';
+import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 const RANGE_LABELS: Record<string, string> = { week: 'Week', month: 'Month', year: 'Year', all: 'All' };
 const TYPE_LABELS: Record<string, string> = { all: 'All Activities', cycling: 'Cycling', swimming: 'Swimming', running: 'Running', strength: 'Strength', walking: 'Walking', other: 'Other' };
 
 export function AllActivities() {
-  const navigation = useNavigation();
-  const { activityFilter, openFilterSheet } = useTrackerStore();
+  const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
+  const { activities, activityFilter, openFilterSheet, getActivityRoute, openActivityDetail } = useTrackerStore();
 
-  const filtered = ALL_ACTIVITIES.filter((a) => {
+  const filtered = activities.filter((a) => {
     if (activityFilter.type !== 'all' && a.type !== activityFilter.type) return false;
     if (activityFilter.range === 'week' && a.daysAgo > 7) return false;
     if (activityFilter.range === 'month' && a.daysAgo > 30) return false;
@@ -45,18 +47,28 @@ export function AllActivities() {
       </View>
       {filtered.length ? (
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {filtered.map((a, i) => (
-            <View key={i} style={styles.row}>
-              <View style={styles.ico}>
-                <MetricIcon id={ACTIVITY_ICONS[a.type as ActivityType]} size={17} color={colors.accent200} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowTitle}>{a.title}</Text>
-                <Text style={styles.rowMeta}>{a.meta}</Text>
-              </View>
-              <Text style={styles.rowTime}>{a.time}</Text>
-            </View>
-          ))}
+          {filtered.map((a, i) => {
+            const trueIndex = activities.indexOf(a);
+            const route = getActivityRoute(a);
+            const onPress = route
+              ? () => {
+                  openActivityDetail(trueIndex);
+                  navigation.navigate(route);
+                }
+              : undefined;
+            return (
+              <Pressable key={i} style={styles.row} onPress={onPress} disabled={!onPress}>
+                <View style={styles.ico}>
+                  <MetricIcon id={ACTIVITY_ICONS[a.type as ActivityType]} size={17} color={colors.accent200} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle}>{a.title}</Text>
+                  <Text style={styles.rowMeta}>{a.meta}</Text>
+                </View>
+                <Text style={styles.rowTime}>{a.time}</Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
       ) : (
         <View style={styles.empty}>

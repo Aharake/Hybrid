@@ -1,5 +1,6 @@
-import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,6 +11,7 @@ import { TrChartIcon, TrChevLeftIcon, TrChevRightIcon, TrClockIcon, TrPlayIcon, 
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { TODAY_DAY_FULL } from '@/engine/calendar';
 import { useTrackerStore, SessionExercise } from '@/store/trackerStore';
+import { fmtWeight, weightToKg, weightUnitLabel, weightValueOnly } from '@/engine/units';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function SessionOverview() {
@@ -22,7 +24,8 @@ export function SessionOverview() {
     expandedExercises,
     editingExercises,
     startWorkout,
-    endWorkout,
+    cancelWorkout,
+    finishWorkout,
     toggleEditExercises,
     toggleExpandExercise,
     updateSet,
@@ -32,15 +35,36 @@ export function SessionOverview() {
     openSwapExercise,
     openAddExercise,
     viewExerciseAnalytics,
+    unitSystem,
   } = useTrackerStore();
 
   const sess = sessions[activeSessionKey];
   const isToday = sess.day === TODAY_DAY_FULL;
   const titleText = isToday ? "Today's Workout" : `${sess.day}'s Workout`;
+  const [finishing, setFinishing] = useState(false);
 
   const viewExercise = (ex: SessionExercise) => {
     viewExerciseAnalytics(ex.id);
     navigation.navigate('ExerciseDetail');
+  };
+
+  const handleCancel = () => {
+    Alert.alert('Discard this workout?', "Sets you've logged in this session won't be saved.", [
+      { text: 'Keep going', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: cancelWorkout },
+    ]);
+  };
+
+  const handleFinish = async () => {
+    setFinishing(true);
+    const result = await finishWorkout();
+    setFinishing(false);
+    if (!result.ok) {
+      Alert.alert(
+        "Couldn't save this workout",
+        (result.error ?? 'Check your connection and try again.') + ' Your logged sets are still shown here for now.',
+      );
+    }
   };
 
   return (
@@ -48,11 +72,15 @@ export function SessionOverview() {
       <View style={styles.topRow}>
         {workout.active ? (
           <>
-            <Pressable onPress={endWorkout}>
+            <Pressable onPress={handleCancel} disabled={finishing}>
               <Text style={styles.cancelText}>Cancel</Text>
             </Pressable>
-            <Pressable style={styles.finishBtn} onPress={endWorkout}>
-              <Text style={styles.finishBtnText}>Finish</Text>
+            <Pressable style={styles.finishBtn} onPress={handleFinish} disabled={finishing}>
+              {finishing ? (
+                <ActivityIndicator size="small" color={colors.bg} />
+              ) : (
+                <Text style={styles.finishBtnText}>Finish</Text>
+              )}
             </Pressable>
           </>
         ) : (
@@ -95,7 +123,7 @@ export function SessionOverview() {
             const isExpanded = expandedExercises.includes(ex.id);
             const rows = sets[ex.id] || [];
             return (
-              <View key={ex.id} style={styles.exWrap}>
+              <Animated.View key={ex.id} style={styles.exWrap} layout={LinearTransition.duration(220)}>
                 <Pressable style={styles.exPill} onPress={() => toggleExpandExercise(ex.id)}>
                   <Text style={styles.exName}>{ex.name}</Text>
                   <View style={styles.exRight}>
@@ -138,12 +166,17 @@ export function SessionOverview() {
                   </View>
                 </Pressable>
                 {isExpanded && (
-                  <View style={styles.exExpand}>
+                  <Animated.View
+                    style={styles.exExpand}
+                    entering={FadeIn.duration(180)}
+                    exiting={FadeOut.duration(140)}
+                    layout={LinearTransition.duration(220)}
+                  >
                     {rows.length ? (
                       rows.map((row, i) => (
                         <View key={i} style={styles.setRow}>
                           <Text style={styles.setNum}>{i + 1}</Text>
-                          <Text style={styles.setPrev}>{ex.previous ? `${ex.previous} kg` : '—'}</Text>
+                          <Text style={styles.setPrev}>{ex.previous ? fmtWeight(ex.previous, unitSystem) : '—'}</Text>
                           <View style={styles.setField}>
                             <TextInput
                               style={[styles.setFieldInput, { color: '#22c55e' }]}
@@ -157,10 +190,10 @@ export function SessionOverview() {
                             <TextInput
                               style={[styles.setFieldInput, { color: '#f5a623' }]}
                               keyboardType="numeric"
-                              value={String(row.weight)}
-                              onChangeText={(v) => updateSet(ex.id, i, 'weight', parseFloat(v) || 0)}
+                              value={weightValueOnly(row.weight, unitSystem, row.weight < 10 ? 1 : 0)}
+                              onChangeText={(v) => updateSet(ex.id, i, 'weight', weightToKg(parseFloat(v) || 0, unitSystem))}
                             />
-                            <Text style={styles.unit}>kg</Text>
+                            <Text style={styles.unit}>{weightUnitLabel(unitSystem)}</Text>
                           </View>
                           <Pressable style={styles.setDel} onPress={() => removeSet(ex.id, i)}>
                             <Text style={styles.setDelText}>✕</Text>
@@ -173,9 +206,9 @@ export function SessionOverview() {
                     <Pressable style={styles.expAddBtn} onPress={() => addSetTo(ex.id)}>
                       <Text style={styles.expAddBtnText}>+ Add Set</Text>
                     </Pressable>
-                  </View>
+                  </Animated.View>
                 )}
-              </View>
+              </Animated.View>
             );
           })}
           {editingExercises && (

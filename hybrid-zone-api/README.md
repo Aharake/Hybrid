@@ -1,6 +1,6 @@
 # hybrid-zone-api
 
-Backend for the Hybrid Zone app — Fastify + Prisma (Postgres) + Better Auth,
+Backend for the Hyvo app — Fastify + Prisma (Postgres) + Better Auth,
 deployed on Railway. Replaces the "everything resets on relaunch" state the
 Expo app currently has (onboarding answers, program, workout logs, run
 activities, custom exercises, and overview preferences all persist per user).
@@ -81,6 +81,40 @@ client IDs registered per platform in Google Cloud Console:
 Until these are set, the "Continue with Google" button simply doesn't
 render — nothing breaks, it's just hidden.
 
+## RevenueCat setup
+
+Subscriptions go through RevenueCat, which sits in front of App Store
+Connect / Google Play Billing. None of this works until you've done the
+external setup — a RevenueCat account, an Apple Developer Program
+membership with IAP products created in App Store Connect, and a Google
+Play Console account with subscription products — but the code is already
+wired to activate automatically once you have:
+
+1. **Create a RevenueCat project** at [app.revenuecat.com](https://app.revenuecat.com),
+   add your iOS and Android apps to it (bundle/package id
+   `com.hybridzone.app`), and connect each to its store (App Store Connect
+   API key / Google Play service account JSON).
+2. **Create an entitlement** named exactly `pro` (the app checks for this
+   identifier — see `ENTITLEMENT_ID` in `hybrid-zone-app/src/store/subscriptionStore.ts`).
+   Attach whatever subscription product(s) you create in App Store
+   Connect / Google Play to it.
+3. **Create an Offering** (RevenueCat calls it "default" by convention) with
+   a Package per plan (e.g. monthly, annual) — the Upgrade screen renders
+   whatever packages the *current* offering has, so no product IDs are
+   hardcoded client-side.
+4. **Set these in the Expo app's `.env`** (see `hybrid-zone-app/.env.example`):
+   - `EXPO_PUBLIC_REVENUECAT_IOS_KEY` — RevenueCat project → API keys → Apple
+   - `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` — RevenueCat project → API keys → Google
+5. **Set up the webhook** so the backend's `Subscription` table stays in
+   sync even when the app isn't open: RevenueCat dashboard → Project →
+   Integrations → Webhooks → add `https://<your-railway-domain>/api/revenuecat/webhook`,
+   and set a custom `Authorization` header value — put that same value in
+   `REVENUECAT_WEBHOOK_SECRET` on the Railway API service.
+
+Until these are set, `isRevenueCatConfigured` is `false`: the Upgrade
+screen shows "not set up yet", the Paywall's "Restore purchase" falls back
+to its original placeholder, and nothing else in the app is affected.
+
 ## API surface
 
 All routes below (except `/api/auth/*` and `/health`) require a valid Better
@@ -113,7 +147,12 @@ POST   /api/custom-exercises
 
 GET    /api/preferences
 PUT    /api/preferences
+
+GET    /api/subscription
+POST   /api/revenuecat/webhook   (public — authenticated by a shared secret header, not a session; see "RevenueCat setup")
 ```
+
+Two public, unauthenticated pages also live outside `/api`: `GET /privacy` and `GET /terms` — plain HTML, linked from the app's About screen and required by App Store / Play Store review.
 
 ## Data model
 
@@ -122,8 +161,9 @@ Better Auth's own tables — if you add social login providers or plugins
 later, regenerate/diff those against `npx @better-auth/cli generate` rather
 than hand-editing them further. Everything else (`OnboardingAnswers`,
 `Program`, `TrainingSession`, `Exercise`, `WorkoutLog`, `LoggedSet`,
-`RunActivity`, `CustomExercise`, `Preferences`) mirrors the Expo app's
-`onboardingStore`/`trackerStore` shapes directly.
+`RunActivity`, `CustomExercise`, `Preferences`, `Subscription`) mirrors the
+Expo app's `onboardingStore`/`trackerStore` shapes directly — `Subscription`
+is the exception, populated by the RevenueCat webhook rather than the client.
 
 ## Not included yet
 
@@ -131,7 +171,6 @@ than hand-editing them further. Everything else (`OnboardingAnswers`,
 - Health data sync (Apple Health / Google Health)
 - Push notifications
 - Analytics
-- Real subscription billing / Cloud Functions equivalent (e.g. App Store /
-  RevenueCat webhook handling) — `planTier`/`subscriptionStatus` on `User`
-  are just fields for now, nothing validates them against a real payment
-  provider.
+- In-app account deletion (deletion is available on request via email today —
+  see the Privacy Policy — Apple's App Store review guidelines generally
+  expect an in-app deletion flow too, worth adding before submitting)
