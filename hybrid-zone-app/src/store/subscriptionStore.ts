@@ -6,12 +6,12 @@
 import { Platform } from 'react-native';
 import { create } from 'zustand';
 import type Purchases from 'react-native-purchases';
-import type { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
+import type { CustomerInfo } from 'react-native-purchases';
+import type RevenueCatUI from 'react-native-purchases-ui';
+import { PAYWALL_RESULT } from 'react-native-purchases-ui';
 
-// The entitlement identifier this app expects to be configured in the
-// RevenueCat dashboard once a project exists — attach it to whatever
-// product(s) should unlock the "pro" tier.
-export const ENTITLEMENT_ID = 'pro';
+// Must match the entitlement identifier configured in the RevenueCat dashboard.
+export const ENTITLEMENT_ID = 'hyvo_pro';
 
 const REVENUECAT_IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY;
 const REVENUECAT_ANDROID_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY;
@@ -28,20 +28,26 @@ function loadPurchases(): typeof Purchases {
   return require('react-native-purchases').default;
 }
 
+function loadPurchasesUI(): typeof RevenueCatUI {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('react-native-purchases-ui').default;
+}
+
 interface SubscriptionStore {
   configured: boolean;
   isPro: boolean;
   customerInfo: CustomerInfo | null;
-  currentOffering: PurchasesOffering | null;
-  loading: boolean;
-  error: string | null;
   configure: () => Promise<void>;
   loginUser: (userId: string) => Promise<void>;
   logoutUser: () => Promise<void>;
   refreshCustomerInfo: () => Promise<void>;
-  loadOfferings: () => Promise<void>;
-  purchase: (pkg: PurchasesPackage) => Promise<{ ok: boolean; cancelled?: boolean; error?: string }>;
   restore: () => Promise<{ ok: boolean; error?: string }>;
+  // Presents RevenueCat's dashboard-configured paywall UI (skips it entirely
+  // if the "hyvo_pro" entitlement is already active).
+  presentPaywall: () => Promise<{ purchased: boolean; restored: boolean; cancelled: boolean; error: boolean }>;
+  // Presents RevenueCat's dashboard-configured Customer Center — lets a
+  // subscriber manage/cancel or request a refund without leaving the app.
+  presentCustomerCenter: () => Promise<void>;
 }
 
 function deriveIsPro(info: CustomerInfo | null): boolean {
@@ -52,9 +58,6 @@ export const useSubscriptionStore = create<SubscriptionStore>((set, get) => ({
   configured: false,
   isPro: false,
   customerInfo: null,
-  currentOffering: null,
-  loading: false,
-  error: null,
 
   configure: async () => {
     if (!isRevenueCatConfigured || get().configured) return;
@@ -86,7 +89,7 @@ export const useSubscriptionStore = create<SubscriptionStore>((set, get) => ({
     } catch {
       // no-op if there was never a logged-in RevenueCat user
     }
-    set({ customerInfo: null, isPro: false, currentOffering: null });
+    set({ customerInfo: null, isPro: false });
   },
 
   refreshCustomerInfo: async () => {
@@ -99,31 +102,6 @@ export const useSubscriptionStore = create<SubscriptionStore>((set, get) => ({
     }
   },
 
-  loadOfferings: async () => {
-    if (!isRevenueCatConfigured || !get().configured) return;
-    set({ loading: true, error: null });
-    try {
-      const offerings = await loadPurchases().getOfferings();
-      set({ currentOffering: offerings.current, loading: false });
-    } catch (err) {
-      set({ loading: false, error: err instanceof Error ? err.message : 'Could not load plans.' });
-    }
-  },
-
-  purchase: async (pkg) => {
-    if (!isRevenueCatConfigured || !get().configured) return { ok: false, error: 'Subscriptions are not set up yet.' };
-    try {
-      const Purchases = loadPurchases();
-      const { customerInfo } = await Purchases.purchasePackage(pkg);
-      set({ customerInfo, isPro: deriveIsPro(customerInfo) });
-      return { ok: true };
-    } catch (err: unknown) {
-      const e = err as { userCancelled?: boolean; message?: string };
-      if (e?.userCancelled) return { ok: false, cancelled: true };
-      return { ok: false, error: e?.message ?? 'Purchase failed. Please try again.' };
-    }
-  },
-
   restore: async () => {
     if (!isRevenueCatConfigured || !get().configured) return { ok: false, error: 'Subscriptions are not set up yet.' };
     try {
@@ -133,5 +111,31 @@ export const useSubscriptionStore = create<SubscriptionStore>((set, get) => ({
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Restore failed. Please try again.' };
     }
+  },
+
+  presentPaywall: async () => {
+    if (!isRevenueCatConfigured || !get().configured) return { purchased: false, restored: false, cancelled: false, error: true };
+    try {
+      const result = await loadPurchasesUI().presentPaywallIfNeeded({ requiredEntitlementIdentifier: ENTITLEMENT_ID });
+      await get().refreshCustomerInfo();
+      return {
+        purchased: result === PAYWALL_RESULT.PURCHASED,
+        restored: result === PAYWALL_RESULT.RESTORED,
+        cancelled: result === PAYWALL_RESULT.CANCELLED,
+        error: result === PAYWALL_RESULT.ERROR,
+      };
+    } catch {
+      return { purchased: false, restored: false, cancelled: false, error: true };
+    }
+  },
+
+  presentCustomerCenter: async () => {
+    if (!isRevenueCatConfigured || !get().configured) return;
+    try {
+      await loadPurchasesUI().presentCustomerCenter();
+    } catch {
+      // no-op — e.g. no Customer Center configured in the dashboard yet
+    }
+    await get().refreshCustomerInfo();
   },
 }));

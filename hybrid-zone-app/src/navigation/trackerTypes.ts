@@ -18,6 +18,8 @@ export type TrackerStackParamList = {
   HelpSupport: undefined;
   About: undefined;
   Upgrade: undefined;
+  ConnectedApps: undefined;
+  PrivacySettings: undefined;
   RunDetail: undefined;
   StrengthDetail: undefined;
   OtherActivityDetail: undefined;

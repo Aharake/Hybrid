@@ -6,7 +6,7 @@
 import { create } from 'zustand';
 import type { DayLabel } from '@/engine/calendar';
 import { TODAY_DAY_SHORT, DAY_LABELS, DAY_FULL_MAP, FULL_TO_DAY_LABEL, isViewingToday as calendarIsViewingToday } from '@/engine/calendar';
-import { saveWorkoutLog } from '@/api/workoutLogs';
+import { saveWorkoutLog, getWorkoutLogs } from '@/api/workoutLogs';
 import { seededRandom } from '@/engine/exerciseHistory';
 import { weightStepFor, weightToKg, fmtDistance, distanceToKm, type UnitSystem } from '@/engine/units';
 import { haversineDistanceKm, isPlausibleMovement, RoutePoint } from '@/engine/gps';
@@ -459,12 +459,7 @@ export const FIRSTS: BadgeItem[] = [
   { id: 'f_half', label: 'HALF', name: 'First Half', sub: null, earned: false },
 ].map((f) => ({ ...f, tier: f.earned ? ('outline' as const) : ('locked' as const) }));
 
-const ACTIVITY_SUMMARY_TABLE: Record<'1m' | '3m' | 'all', { workouts: number; runs: number }> = {
-  '1m': { workouts: 14, runs: 8 },
-  '3m': { workouts: 41, runs: 23 },
-  all: { workouts: 96, runs: 52 },
-};
-
+// Still placeholder — see getDataHighlightsValues.
 const DATA_HIGHLIGHTS_TABLE: Record<'1m' | '3m' | 'all', { consistency: number; load: number }> = {
   '1m': { consistency: 0.81, load: 1.18 },
   '3m': { consistency: 0.88, load: 1.29 },
@@ -581,7 +576,13 @@ interface TrackerStore {
   dataHighlightsRange: '1m' | '3m' | 'all';
   selectActivitySummaryRange: (range: '1m' | '3m' | 'all') => void;
   selectDataHighlightsRange: (range: '1m' | '3m' | 'all') => void;
+  // Dates (ISO) of real logged strength workouts, hydrated from the backend —
+  // `activities` still has no real strength entries (see finishWorkout), so
+  // Activity Summary counts real workouts from here instead.
+  workoutLogDates: string[];
   getActivitySummaryValues: () => { workouts: number; runs: number };
+  // NOTE: Consistency/Load are still placeholder — a real formula needs a
+  // product decision on what "consistent" and "load" mean before it's wired.
   getDataHighlightsValues: () => { consistency: number; load: number };
 
   // Account settings pickers.
@@ -804,7 +805,12 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     });
   },
   hydrateFromBackend: async () => {
-    const [programRes, prefsRes, runActivitiesRes] = await Promise.allSettled([getProgram(), getPreferences(), getRunActivities()]);
+    const [programRes, prefsRes, runActivitiesRes, workoutLogsRes] = await Promise.allSettled([
+      getProgram(),
+      getPreferences(),
+      getRunActivities(),
+      getWorkoutLogs(),
+    ]);
 
     if (programRes.status === 'fulfilled' && programRes.value && programRes.value.sessions.length > 0) {
       const p = programRes.value;
@@ -848,6 +854,10 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     if (runActivitiesRes.status === 'fulfilled' && runActivitiesRes.value.length > 0) {
       const runActivities = runActivitiesRes.value.map(runActivityResponseToActivityItem);
       set((s) => ({ activities: [...runActivities, ...s.activities.filter((a) => a.type !== 'running')] }));
+    }
+
+    if (workoutLogsRes.status === 'fulfilled') {
+      set({ workoutLogDates: workoutLogsRes.value.map((log) => log.date) });
     }
   },
 
@@ -1009,7 +1019,16 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   dataHighlightsRange: 'all',
   selectActivitySummaryRange: (range) => set({ activitySummaryRange: range }),
   selectDataHighlightsRange: (range) => set({ dataHighlightsRange: range }),
-  getActivitySummaryValues: () => ACTIVITY_SUMMARY_TABLE[get().activitySummaryRange],
+  workoutLogDates: [],
+  getActivitySummaryValues: () => {
+    const { activitySummaryRange, workoutLogDates, activities } = get();
+    const cutoffDays = activitySummaryRange === '1m' ? 30 : activitySummaryRange === '3m' ? 90 : Infinity;
+    const now = Date.now();
+    const withinCutoff = (iso: string) => (now - new Date(iso).getTime()) / 86400000 <= cutoffDays;
+    const workouts = workoutLogDates.filter(withinCutoff).length;
+    const runs = activities.filter((a) => a.type === 'running' && a.daysAgo <= cutoffDays).length;
+    return { workouts, runs };
+  },
   getDataHighlightsValues: () => DATA_HIGHLIGHTS_TABLE[get().dataHighlightsRange],
 
   runDefaultsPickerOpen: false,
@@ -1309,6 +1328,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     if (newSets.length === 0) return { ok: true };
     try {
       await saveWorkoutLog(activeSessionKey, newSets);
+      set((s) => ({ workoutLogDates: [...s.workoutLogDates, new Date().toISOString()] }));
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Failed to save workout.' };

@@ -1,31 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, radius, typography } from '@/theme/trackerTokens';
 import { TrChevLeftIcon, TrTrophyIcon } from '@/icons';
 import { useSubscriptionStore, isRevenueCatConfigured } from '@/store/subscriptionStore';
-import type { PurchasesPackage } from 'react-native-purchases';
 
 export function UpgradeScreen() {
   const navigation = useNavigation();
-  const { isPro, currentOffering, loading, error, loadOfferings, purchase, restore } = useSubscriptionStore();
-  const [purchasingId, setPurchasingId] = useState<string | null>(null);
+  const { isPro, presentPaywall, restore, presentCustomerCenter } = useSubscriptionStore();
+  const [presenting, setPresenting] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [managing, setManaging] = useState(false);
 
-  useEffect(() => {
-    if (isRevenueCatConfigured) loadOfferings();
-  }, [loadOfferings]);
-
-  const handlePurchase = async (pkg: PurchasesPackage) => {
-    setPurchasingId(pkg.identifier);
-    const result = await purchase(pkg);
-    setPurchasingId(null);
-    if (result.ok) {
-      Alert.alert('You’re Pro!', 'Thanks for subscribing to Hyvo Pro.');
-    } else if (!result.cancelled) {
-      Alert.alert('Purchase failed', result.error ?? 'Please try again.');
-    }
+  const handleUpgrade = async () => {
+    setPresenting(true);
+    const result = await presentPaywall();
+    setPresenting(false);
+    if (result.purchased) Alert.alert('You’re Pro!', 'Thanks for subscribing to Hyvo Pro.');
+    else if (result.restored) Alert.alert('Restored', 'Your Hyvo Pro subscription has been restored.');
+    else if (result.error) Alert.alert('Something went wrong', 'Please try again.');
   };
 
   const handleRestore = async () => {
@@ -35,7 +29,11 @@ export function UpgradeScreen() {
     Alert.alert(result.ok ? 'Restored' : 'Restore failed', result.ok ? 'Your purchases have been restored.' : result.error);
   };
 
-  const packages = currentOffering?.availablePackages ?? [];
+  const handleManage = async () => {
+    setManaging(true);
+    await presentCustomerCenter();
+    setManaging(false);
+  };
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -64,49 +62,23 @@ export function UpgradeScreen() {
         )}
 
         {isRevenueCatConfigured && isPro && (
-          <View style={styles.card}>
-            <Text style={styles.cardText}>Your subscription is active. Manage or cancel it from your device's App Store / Play Store subscription settings.</Text>
-          </View>
+          <>
+            <View style={styles.card}>
+              <Text style={styles.cardText}>Your subscription is active.</Text>
+            </View>
+            <Pressable style={styles.upgradeBtn} onPress={handleManage} disabled={managing}>
+              {managing ? <ActivityIndicator color="#000" /> : <Text style={styles.upgradeBtnText}>Manage subscription</Text>}
+            </Pressable>
+          </>
         )}
 
-        {isRevenueCatConfigured && !isPro && loading && (
-          <View style={styles.card}>
-            <ActivityIndicator color={colors.text} />
-          </View>
+        {isRevenueCatConfigured && !isPro && (
+          <Pressable style={styles.upgradeBtn} onPress={handleUpgrade} disabled={presenting}>
+            {presenting ? <ActivityIndicator color="#000" /> : <Text style={styles.upgradeBtnText}>See plans</Text>}
+          </Pressable>
         )}
 
-        {isRevenueCatConfigured && !isPro && !loading && error && (
-          <View style={styles.card}>
-            <Text style={styles.cardText}>{error}</Text>
-          </View>
-        )}
-
-        {isRevenueCatConfigured && !isPro && !loading && !error && packages.length === 0 && (
-          <View style={styles.card}>
-            <Text style={styles.cardText}>No plans are available right now.</Text>
-          </View>
-        )}
-
-        {isRevenueCatConfigured && !isPro && packages.length > 0 && (
-          <View style={{ gap: 10 }}>
-            {packages.map((pkg) => (
-              <Pressable
-                key={pkg.identifier}
-                style={styles.planOption}
-                disabled={purchasingId !== null}
-                onPress={() => handlePurchase(pkg)}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.planLabel}>{pkg.product.title || pkg.identifier}</Text>
-                  <Text style={styles.planDesc}>{pkg.product.priceString}</Text>
-                </View>
-                {purchasingId === pkg.identifier && <ActivityIndicator color={colors.text} />}
-              </Pressable>
-            ))}
-          </View>
-        )}
-
-        {isRevenueCatConfigured && (
+        {isRevenueCatConfigured && !isPro && (
           <Pressable style={styles.linkRow} onPress={handleRestore} disabled={restoring}>
             <Text style={styles.link}>{restoring ? 'Restoring…' : 'Restore purchases'}</Text>
           </Pressable>
@@ -126,9 +98,8 @@ const styles = StyleSheet.create({
   heroIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   card: { backgroundColor: colors.surface, borderRadius: radius.md, padding: 18, alignItems: 'center' },
   cardText: { fontSize: 13.5, color: colors.neutral500, textAlign: 'center', lineHeight: 19, fontFamily: fonts.regular },
-  planOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderRadius: radius.lg, paddingVertical: 18, paddingHorizontal: 20 },
-  planLabel: { fontFamily: fonts.bold, fontSize: 15, color: colors.text },
-  planDesc: { fontFamily: fonts.regular, fontSize: 12.5, color: colors.neutral500, marginTop: 3 },
+  upgradeBtn: { backgroundColor: colors.text, borderRadius: radius.lg, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
+  upgradeBtnText: { fontFamily: fonts.bold, fontSize: 15, color: '#000' },
   linkRow: { alignItems: 'center', marginTop: 8 },
   link: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.neutral500, textDecorationLine: 'underline' },
 });

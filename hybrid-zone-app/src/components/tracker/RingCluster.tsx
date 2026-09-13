@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedProps, useAnimatedReaction, useSharedValue, withTiming } from 'react-native-reanimated';
 import Svg, { Circle, Defs, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { TrChevRightIcon } from '@/icons';
@@ -11,6 +11,24 @@ import { viewSeedFor, varyValue } from '@/engine/metricVariance';
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const SIZE = 140;
+
+// Smoothly tweens a plain JS number toward `target` — used anywhere a value
+// needs to animate but can't be driven by useAnimatedProps directly (SVG
+// Path `d` strings, or a <Text> number that should count up/down in sync
+// with a ring rather than jump).
+function useAnimatedNumber(target: number, duration = 900): number {
+  const [display, setDisplay] = useState(0);
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    progress.value = withTiming(target, { duration });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+  useAnimatedReaction(
+    () => progress.value,
+    (current) => runOnJS(setDisplay)(current),
+  );
+  return display;
+}
 
 // Ambient glow behind each ring — the source uses a CSS blur filter on plain divs,
 // which has no direct RN equivalent; a soft radial-gradient blob (react-native-svg,
@@ -62,8 +80,12 @@ function CenterRing({ pct }: { pct: number }) {
   );
 }
 
+// SVG Path `d` strings can't be driven by useAnimatedProps directly (rcCurvedLine
+// isn't a worklet), so this recomputes the path in JS off useAnimatedNumber's
+// ticking value instead — same 900ms timing as CenterRing, driven differently.
 function CurvedLine({ pct, side, color, dimColor }: { pct: number; side: 'left' | 'right'; color: string; dimColor: string }) {
-  const geo = rcCurvedLine(pct, SIZE, side);
+  const displayPct = useAnimatedNumber(pct);
+  const geo = rcCurvedLine(displayPct, SIZE, side);
   return (
     <Svg width={geo.viewBox.w} height={geo.viewBox.h} viewBox={`${geo.viewBox.x} ${geo.viewBox.y} ${geo.viewBox.w} ${geo.viewBox.h}`}>
       <Path d={geo.trackPath} fill="none" stroke={dimColor} strokeWidth={geo.strokeWidth} strokeLinecap="round" />
@@ -89,6 +111,9 @@ export function useViewRingData() {
 export function RingCluster() {
   const openMetricDetail = useTrackerStore((s) => s.openMetricDetail);
   const data = useViewRingData();
+  const consistencyNum = useAnimatedNumber(data.consistency * 100);
+  const goalNum = useAnimatedNumber(data.goal * 100);
+  const volumeNum = useAnimatedNumber(data.volume * 100);
 
   return (
     <View style={styles.card}>
@@ -98,7 +123,7 @@ export function RingCluster() {
         <GlowBlob width={56} height={16} color={colors.rcVolume} style={{ right: 8 }} />
 
         <View style={styles.sideText}>
-          <Text style={[styles.sideNum, { color: colors.rcConsistency }]}>{Math.round(data.consistency * 100)}</Text>
+          <Text style={[styles.sideNum, { color: colors.rcConsistency }]}>{Math.round(consistencyNum)}</Text>
         </View>
         <View style={styles.centerWrap}>
           <CurvedLine pct={data.consistency} side="left" color={colors.rcConsistency} dimColor={colors.rcConsistencyDim} />
@@ -106,7 +131,7 @@ export function RingCluster() {
         <View style={styles.centerWrap}>
           <CenterRing pct={data.goal * 100} />
           <View style={styles.centerNumWrap}>
-            <Text style={[styles.centerNum, { color: colors.rcGoal }]}>{Math.round(data.goal * 100)}</Text>
+            <Text style={[styles.centerNum, { color: colors.rcGoal }]}>{Math.round(goalNum)}</Text>
           </View>
         </View>
         <View style={styles.centerWrap}>
@@ -114,7 +139,7 @@ export function RingCluster() {
         </View>
         <View style={styles.sideText}>
           <Text style={[styles.sideNum, { color: colors.rcVolume }]}>
-            {Math.round(data.volume * 100)}
+            {Math.round(volumeNum)}
             <Text style={styles.sidePct}>%</Text>
           </Text>
         </View>

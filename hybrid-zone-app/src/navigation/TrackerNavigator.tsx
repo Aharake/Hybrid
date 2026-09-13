@@ -18,6 +18,8 @@ import { AchievementsHubScreen } from '@/screens/tracker/AchievementsHubScreen';
 import { HelpSupportScreen } from '@/screens/tracker/HelpSupportScreen';
 import { AboutScreen } from '@/screens/tracker/AboutScreen';
 import { UpgradeScreen } from '@/screens/tracker/UpgradeScreen';
+import { ConnectedAppsScreen } from '@/screens/tracker/ConnectedAppsScreen';
+import { PrivacySettingsScreen } from '@/screens/tracker/PrivacySettingsScreen';
 import { RunDetailScreen } from '@/screens/tracker/RunDetailScreen';
 import { StrengthDetailScreen } from '@/screens/tracker/StrengthDetailScreen';
 import { OtherActivityDetailScreen } from '@/screens/tracker/OtherActivityDetailScreen';
@@ -49,6 +51,8 @@ export function TrackerNavigator() {
       <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
       <Stack.Screen name="About" component={AboutScreen} />
       <Stack.Screen name="Upgrade" component={UpgradeScreen} />
+      <Stack.Screen name="ConnectedApps" component={ConnectedAppsScreen} />
+      <Stack.Screen name="PrivacySettings" component={PrivacySettingsScreen} />
       <Stack.Screen name="RunDetail" component={RunDetailScreen} />
       <Stack.Screen name="StrengthDetail" component={StrengthDetailScreen} />
       <Stack.Screen name="OtherActivityDetail" component={OtherActivityDetailScreen} />

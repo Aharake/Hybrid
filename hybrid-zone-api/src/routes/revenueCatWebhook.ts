@@ -50,7 +50,7 @@ export async function revenueCatWebhookRoutes(app: FastifyInstance) {
       return;
     }
 
-    const entitlementId = event.entitlement_ids?.[0] ?? 'pro';
+    const entitlementId = event.entitlement_ids?.[0] ?? 'hyvo_pro';
     const expiresAt = event.expiration_at_ms ? new Date(event.expiration_at_ms) : null;
     const isActive = !INACTIVE_EVENT_TYPES.has(event.type) && (!expiresAt || expiresAt.getTime() > Date.now());
 

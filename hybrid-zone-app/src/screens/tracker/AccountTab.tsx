@@ -1,5 +1,6 @@
-import React from 'react';
-import { Alert, Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, Image, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -61,6 +62,28 @@ export function AccountTab() {
     getDataHighlightsValues,
     buildLoggedSetsCsv,
   } = useTrackerStore();
+
+  const [pushGranted, setPushGranted] = useState<boolean | null>(null);
+  useEffect(() => {
+    Notifications.getPermissionsAsync().then((s) => setPushGranted(s.granted));
+  }, []);
+
+  const handlePushNotifications = async () => {
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted) {
+      Alert.alert('Notifications are on', 'Manage or turn them off from your device Settings.', [
+        { text: 'OK', style: 'cancel' },
+        { text: 'Open Settings', onPress: () => Linking.openSettings() },
+      ]);
+      return;
+    }
+    if (!current.canAskAgain) {
+      Linking.openSettings();
+      return;
+    }
+    const result = await Notifications.requestPermissionsAsync();
+    setPushGranted(result.granted);
+  };
 
   const confirmSignOut = () => {
     Alert.alert('Sign out?', undefined, [
@@ -189,12 +212,17 @@ export function AccountTab() {
           <Text style={styles.sectionTitle}>Account Settings</Text>
           <View style={styles.settingsList}>
             <SettingsRow icon={TrTrophyIcon} label="Hyvo Pro" value={isPro ? 'Active' : undefined} onPress={() => navigation.navigate('Upgrade')} />
-            <SettingsRow icon={TrBellIcon} label="Push Notifications" />
+            <SettingsRow
+              icon={TrBellIcon}
+              label="Push Notifications"
+              value={pushGranted === null ? undefined : pushGranted ? 'On' : 'Off'}
+              onPress={handlePushNotifications}
+            />
             <SettingsRow icon={TrSlidersIcon} label="Units of Measure" value={unitSystem === 'imperial' ? 'Imperial' : 'Metric'} onPress={openUnitPicker} />
             <SettingsRow icon={TrRunSmallIcon} label="Run Defaults" onPress={openRunDefaultsPicker} />
             <SettingsRow icon={TrSlidersIcon} label="Rest Timer Default" value={`${restTimer.duration}s`} onPress={openRestTimerPicker} />
-            <SettingsRow icon={TrDevicesIcon} label="Connected Apps & Devices" />
-            <SettingsRow icon={TrShieldIcon} label="Privacy & Sharing" />
+            <SettingsRow icon={TrDevicesIcon} label="Connected Apps & Devices" onPress={() => navigation.navigate('ConnectedApps')} />
+            <SettingsRow icon={TrShieldIcon} label="Privacy & Sharing" onPress={() => navigation.navigate('PrivacySettings')} />
             <SettingsRow icon={TrDownloadIcon} label="Data Export" onPress={handleExport} chevron={false} />
             <SettingsRow icon={TrHelpIcon} label="Help & Support" onPress={() => navigation.navigate('HelpSupport')} />
             <SettingsRow icon={TrInfoIcon} label="About" onPress={() => navigation.navigate('About')} last />

@@ -94,17 +94,21 @@ wired to activate automatically once you have:
    add your iOS and Android apps to it (bundle/package id
    `com.hybridzone.app`), and connect each to its store (App Store Connect
    API key / Google Play service account JSON).
-2. **Create an entitlement** named exactly `pro` (the app checks for this
-   identifier — see `ENTITLEMENT_ID` in `hybrid-zone-app/src/store/subscriptionStore.ts`).
+2. **Create an entitlement** named exactly `hyvo_pro` (the app checks for
+   this identifier — see `ENTITLEMENT_ID` in `hybrid-zone-app/src/store/subscriptionStore.ts`).
    Attach whatever subscription product(s) you create in App Store
    Connect / Google Play to it.
-3. **Create an Offering** (RevenueCat calls it "default" by convention) with
-   a Package per plan (e.g. monthly, annual) — the Upgrade screen renders
-   whatever packages the *current* offering has, so no product IDs are
-   hardcoded client-side.
+3. **Create an Offering with a Paywall** (RevenueCat calls the offering
+   "default" by convention) — the Upgrade screen presents RevenueCat's own
+   dashboard-configured Paywall UI (`RevenueCatUI.presentPaywallIfNeeded`)
+   rather than a custom package list, so design the paywall and its
+   packages (monthly, annual, etc.) entirely in the dashboard.
 4. **Set these in the Expo app's `.env`** (see `hybrid-zone-app/.env.example`):
    - `EXPO_PUBLIC_REVENUECAT_IOS_KEY` — RevenueCat project → API keys → Apple
    - `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` — RevenueCat project → API keys → Google
+   - Before connecting real store credentials, RevenueCat issues a `test_`-prefixed
+     Test Store key you can use for both — it simulates purchases end-to-end
+     with no App Store/Play Store account needed yet.
 5. **Set up the webhook** so the backend's `Subscription` table stays in
    sync even when the app isn't open: RevenueCat dashboard → Project →
    Integrations → Webhooks → add `https://<your-railway-domain>/api/revenuecat/webhook`,

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { Platform } from 'react-native';
 import type * as GoogleSigninModule from '@react-native-google-signin/google-signin';
 import { apiFetch, clearStoredToken, getStoredToken, setStoredToken } from '@/api/client';
+import { deleteAccount as deleteAccountRequest } from '@/api/me';
 import { useRootStore } from './rootStore';
 import { useTrackerStore, resetTrackerStore } from './trackerStore';
 import { useSubscriptionStore } from './subscriptionStore';
@@ -39,6 +40,10 @@ interface AuthStore {
   signIn: (email: string, password: string) => Promise<boolean>;
   signInWithGoogle: () => Promise<boolean>;
   signOut: () => Promise<void>;
+  // Permanently deletes the account server-side, then clears local state the
+  // same way signOut does. Does not cancel an active RevenueCat/store
+  // subscription — that's billed independently by Apple/Google.
+  deleteAccount: () => Promise<{ ok: boolean; error?: string }>;
   clearError: () => void;
 }
 
@@ -194,6 +199,25 @@ export const useAuthStore = create<AuthStore>((set) => ({
     resetTrackerStore();
     useSubscriptionStore.getState().logoutUser().catch(() => {});
     useRootStore.getState().setPhase('loggedOut');
+  },
+
+  deleteAccount: async () => {
+    try {
+      await deleteAccountRequest();
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Could not delete your account. Please try again.' };
+    }
+    try {
+      await loadGoogleSignin().GoogleSignin.signOut();
+    } catch {
+      // no-op if there was never a Google session
+    }
+    await clearStoredToken();
+    set({ user: null });
+    resetTrackerStore();
+    useSubscriptionStore.getState().logoutUser().catch(() => {});
+    useRootStore.getState().setPhase('loggedOut');
+    return { ok: true };
   },
 
   clearError: () => set({ error: null }),
