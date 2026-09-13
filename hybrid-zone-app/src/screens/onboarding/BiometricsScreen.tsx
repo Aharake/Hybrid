@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -74,8 +74,7 @@ function ValueSlider({ value, min, max, step, onChange }: ValueSliderProps) {
   );
 }
 
-interface MetricPageProps {
-  width: number;
+interface MetricRowProps {
   label: string;
   value: number;
   unit: string;
@@ -85,13 +84,15 @@ interface MetricPageProps {
   onChange: (next: number) => void;
 }
 
-function MetricPage({ width, label, value, unit, step, min, max, onChange }: MetricPageProps) {
+function MetricRow({ label, value, unit, step, min, max, onChange }: MetricRowProps) {
   return (
-    <View style={[styles.page, { width }]}>
-      <Text style={styles.pageLabel}>{label}</Text>
-      <View style={styles.valueBox}>
-        <Text style={styles.valueNum}>{value}</Text>
-        <Text style={styles.valueUnit}>{unit}</Text>
+    <View style={styles.row}>
+      <View style={styles.rowHeader}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={styles.rowValue}>
+          {value}
+          <Text style={styles.rowUnit}> {unit}</Text>
+        </Text>
       </View>
       <ValueSlider value={value} min={min} max={max} step={step} onChange={onChange} />
       <View style={styles.rangeRow}>
@@ -105,64 +106,31 @@ function MetricPage({ width, label, value, unit, step, min, max, onChange }: Met
 export function BiometricsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<OnboardingStackParamList, 'Biometrics'>>();
   const { age, weightKg, heightCm, setField } = useOnboardingStore();
-  const { width } = useWindowDimensions();
-  const pageWidth = width - 48; // matches OnboardingScreen's 24px horizontal padding each side
-  const scrollRef = useRef<ScrollView>(null);
-  const [page, setPage] = useState(0);
 
-  const pages = [
-    { key: 'age', label: 'How old are you?', value: age, unit: 'years', step: 1, min: 13, max: 90, onChange: (v: number) => setField('age', v) },
-    { key: 'weight', label: "What's your weight?", value: weightKg, unit: 'kg', step: 1, min: 30, max: 220, onChange: (v: number) => setField('weightKg', v) },
-    { key: 'height', label: "What's your height?", value: heightCm, unit: 'cm', step: 1, min: 120, max: 220, onChange: (v: number) => setField('heightCm', v) },
+  const metrics: MetricRowProps[] = [
+    { label: 'Age', value: age, unit: 'years', step: 1, min: 13, max: 90, onChange: (v) => setField('age', v) },
+    { label: 'Height', value: heightCm, unit: 'cm', step: 1, min: 120, max: 220, onChange: (v) => setField('heightCm', v) },
+    { label: 'Weight', value: weightKg, unit: 'kg', step: 1, min: 30, max: 220, onChange: (v) => setField('weightKg', v) },
   ];
-
-  const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth));
-  };
-
-  const jumpTo = (i: number) => {
-    scrollRef.current?.scrollTo({ x: i * pageWidth, animated: true });
-    setPage(i);
-  };
 
   return (
     <OnboardingScreen progress={14} footer={<PrimaryButton label="Continue" onPress={() => navigation.navigate('StrengthGoal')} />}>
       <Text style={[typography.title, { color: colors.text, marginBottom: 10 }]}>A few basics about you</Text>
-      <Text style={[typography.subtitle, { marginBottom: 20 }]}>Swipe to move between age, weight, and height — drag the slider to set each one.</Text>
+      <Text style={[typography.subtitle, { marginBottom: 24 }]}>Drag each slider to set your age, height, and weight.</Text>
 
-      <View style={styles.dots}>
-        {pages.map((p, i) => (
-          <Pressable key={p.key} hitSlop={10} onPress={() => jumpTo(i)}>
-            <View style={[styles.dot, i === page && styles.dotActive]} />
-          </Pressable>
-        ))}
-      </View>
-
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={onMomentumEnd}
-        style={{ width: pageWidth }}
-      >
-        {pages.map((p) => (
-          <MetricPage key={p.key} width={pageWidth} label={p.label} value={p.value} unit={p.unit} step={p.step} min={p.min} max={p.max} onChange={p.onChange} />
-        ))}
-      </ScrollView>
+      {metrics.map((m) => (
+        <MetricRow key={m.label} {...m} />
+      ))}
     </OnboardingScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  dots: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 18 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.track },
-  dotActive: { backgroundColor: colors.text, width: 18 },
-  page: { alignItems: 'center', paddingTop: 30, paddingHorizontal: 4 },
-  pageLabel: { fontFamily: fonts.semiBold, fontSize: 16, color: colors.text, marginBottom: 36 },
-  valueBox: { alignItems: 'center', marginBottom: 44 },
-  valueNum: { fontFamily: fonts.extraBold, fontSize: 56, color: colors.text, letterSpacing: -1 },
-  valueUnit: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.textDim, marginTop: 2 },
+  row: { marginBottom: 30 },
+  rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 14 },
+  rowLabel: { fontFamily: fonts.semiBold, fontSize: 16, color: colors.text },
+  rowValue: { fontFamily: fonts.extraBold, fontSize: 28, color: colors.text, letterSpacing: -0.5 },
+  rowUnit: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.textDim },
   track: { width: '100%', height: THUMB, justifyContent: 'center' },
   trackBg: { position: 'absolute', left: 0, right: 0, height: 6, borderRadius: 3, backgroundColor: colors.track },
   trackFill: { position: 'absolute', left: 0, height: 6, borderRadius: 3, backgroundColor: colors.text },
@@ -176,6 +144,6 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: '#000',
   },
-  rangeRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: 10 },
+  rangeRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: 8 },
   rangeLabel: { fontFamily: fonts.regular, fontSize: 11.5, color: colors.textDimmer },
 });

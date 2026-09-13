@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import Animated, {
+  cancelAnimation,
   Easing,
   interpolate,
   useAnimatedStyle,
@@ -43,6 +44,10 @@ export function ParticleCloud() {
   useEffect(() => {
     breathe.value = withRepeat(withTiming(1, { duration: 5000, easing: Easing.inOut(Easing.ease) }), -1, true);
     spin.value = withRepeat(withTiming(360, { duration: 60000, easing: Easing.linear }), -1, false);
+    return () => {
+      cancelAnimation(breathe);
+      cancelAnimation(spin);
+    };
   }, []);
 
   const breatheStyle = useAnimatedStyle(() => ({

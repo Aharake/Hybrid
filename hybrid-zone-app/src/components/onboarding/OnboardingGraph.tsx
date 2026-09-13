@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Stop, Text as SvgText } from 'react-native-svg';
 import Animated, {
+  cancelAnimation,
   Easing,
   interpolate,
   runOnJS,
@@ -65,6 +66,7 @@ export function OnboardingGraph() {
 
   useEffect(() => {
     progress.value = withRepeat(withTiming(1, { duration: CYCLE_MS, easing: Easing.linear }), -1, false);
+    return () => cancelAnimation(progress);
   }, [progress]);
 
   useAnimatedReaction(

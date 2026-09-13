@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
+import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { colors, fonts } from '@/theme/tokens';
 import { CheckIcon } from '@/icons';
 
@@ -12,6 +12,7 @@ function Spinner() {
 
   useEffect(() => {
     rotation.value = withRepeat(withTiming(360, { duration: 800, easing: Easing.linear }), -1, false);
+    return () => cancelAnimation(rotation);
   }, []);
 
   const style = useAnimatedStyle(() => ({ transform: [{ rotate: `${rotation.value}deg` }] }));
