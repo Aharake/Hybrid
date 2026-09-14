@@ -24,20 +24,41 @@ const googleClientIds = [
   process.env.GOOGLE_CLIENT_ID_ANDROID,
 ].filter((id): id is string => Boolean(id));
 
+// Apple sign-in uses the same native "ID token" flow as Google above: the
+// Expo app signs in on-device with expo-apple-authentication and sends the
+// resulting identityToken straight to POST /api/auth/sign-in/social
+// ({ provider: 'apple', idToken: { token } }) — no OAuth redirect/web flow,
+// so no clientSecret is ever needed here. The native identityToken's `aud`
+// claim is the app's iOS bundle identifier (not an Apple "Services ID"),
+// which is why appBundleIdentifier is set instead of relying on clientId
+// for audience verification; clientId is still required by the type but is
+// only actually used if the (unused) web OAuth code flow is invoked.
+const appleBundleId = process.env.APPLE_BUNDLE_IDENTIFIER;
+
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
   emailAndPassword: {
     enabled: true,
   },
-  socialProviders:
-    googleClientIds.length > 0
+  socialProviders: {
+    ...(googleClientIds.length > 0
       ? {
           google: {
             clientId: googleClientIds,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
           },
         }
-      : undefined,
+      : {}),
+    ...(appleBundleId
+      ? {
+          apple: {
+            clientId: appleBundleId,
+            clientSecret: '', // unused: only the native idToken flow is wired up, never the OAuth code flow
+            appBundleIdentifier: appleBundleId,
+          },
+        }
+      : {}),
+  },
   plugins: [bearer()],
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL,

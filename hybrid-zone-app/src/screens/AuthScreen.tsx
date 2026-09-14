@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { PrimaryButton } from '@/components/PrimaryButton';
-import { isGoogleSignInConfigured, useAuthStore } from '@/store/authStore';
+import { isAppleSignInAvailable, isGoogleSignInConfigured, useAuthStore } from '@/store/authStore';
 import { colors, fonts, radius, typography } from '@/theme/tokens';
 
 interface Props {
@@ -18,7 +19,7 @@ export function AuthScreen({ onAuthenticated }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { loading, error, signUp, signIn, signInWithGoogle, clearError } = useAuthStore();
+  const { loading, error, signUp, signIn, signInWithGoogle, signInWithApple, clearError } = useAuthStore();
 
   const submit = async () => {
     const ok =
@@ -30,6 +31,13 @@ export function AuthScreen({ onAuthenticated }: Props) {
 
   const submitGoogle = async () => {
     const ok = await signInWithGoogle();
+    if (ok) {
+      await onAuthenticated();
+    }
+  };
+
+  const submitApple = async () => {
+    const ok = await signInWithApple();
     if (ok) {
       await onAuthenticated();
     }
@@ -111,19 +119,31 @@ export function AuthScreen({ onAuthenticated }: Props) {
             variant="ghost"
           />
 
-          {isGoogleSignInConfigured && (
+          {(isAppleSignInAvailable || isGoogleSignInConfigured) && (
             <>
               <View style={styles.dividerRow}>
                 <View style={styles.dividerLine} />
                 <Text style={styles.dividerLabel}>or</Text>
                 <View style={styles.dividerLine} />
               </View>
-              <PrimaryButton
-                label="Continue with Google"
-                onPress={submitGoogle}
-                disabled={loading}
-                color="white"
-              />
+              {isAppleSignInAvailable && (
+                <AppleAuthentication.AppleAuthenticationButton
+                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                  cornerRadius={27}
+                  style={styles.appleButton}
+                  onPress={submitApple}
+                />
+              )}
+              {isGoogleSignInConfigured && (
+                <PrimaryButton
+                  label="Continue with Google"
+                  onPress={submitGoogle}
+                  disabled={loading}
+                  color="white"
+                  style={isAppleSignInAvailable ? { marginTop: 12 } : undefined}
+                />
+              )}
             </>
           )}
         </ScrollView>
@@ -150,4 +170,5 @@ const styles = StyleSheet.create({
   dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 18, gap: 12 },
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.track },
   dividerLabel: { fontFamily: fonts.regular, fontSize: 12.5, color: colors.textDimmer },
+  appleButton: { width: '100%', height: 54 },
 });

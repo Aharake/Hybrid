@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Platform } from 'react-native';
 import type * as GoogleSigninModule from '@react-native-google-signin/google-signin';
+import type * as AppleAuthenticationModule from 'expo-apple-authentication';
 import { apiFetch, clearStoredToken, getStoredToken, setStoredToken } from '@/api/client';
 import { deleteAccount as deleteAccountRequest } from '@/api/me';
 import { useRootStore } from './rootStore';
@@ -25,6 +26,14 @@ function loadGoogleSignin(): typeof GoogleSigninModule {
   return require('@react-native-google-signin/google-signin');
 }
 
+// Same lazy-require reasoning as Google above, for the native AppleAuthentication module.
+function loadAppleAuthentication(): typeof AppleAuthenticationModule {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-apple-authentication');
+}
+
+export const isAppleSignInAvailable = Platform.OS === 'ios';
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -39,6 +48,7 @@ interface AuthStore {
   signUp: (email: string, password: string, name: string) => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
   signInWithGoogle: () => Promise<boolean>;
+  signInWithApple: () => Promise<boolean>;
   signOut: () => Promise<void>;
   // Permanently deletes the account server-side, then clears local state the
   // same way signOut does. Does not cancel an active RevenueCat/store
@@ -178,6 +188,59 @@ export const useAuthStore = create<AuthStore>((set) => ({
       return await finishAuth(response, set);
     } catch {
       set({ loading: false, error: 'Google sign-in failed. Please try again.' });
+      return false;
+    }
+  },
+
+  // Native flow, same shape as signInWithGoogle: sign in on-device with
+  // Apple's SDK, then hand the identityToken to Better Auth. Apple only
+  // returns the user's name/email on the very first authorization for this
+  // app, so those are passed alongside the token when present.
+  signInWithApple: async () => {
+    if (!isAppleSignInAvailable) {
+      set({ error: 'Sign in with Apple is not available on this device.' });
+      return false;
+    }
+    set({ loading: true, error: null });
+    try {
+      const AppleAuthentication = loadAppleAuthentication();
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      if (!credential.identityToken) {
+        set({ loading: false, error: 'Apple did not return an identity token.' });
+        return false;
+      }
+      const hasNameOrEmail = credential.fullName?.givenName || credential.fullName?.familyName || credential.email;
+      const response = await apiFetch('/api/auth/sign-in/social', {
+        method: 'POST',
+        body: JSON.stringify({
+          provider: 'apple',
+          idToken: {
+            token: credential.identityToken,
+            ...(hasNameOrEmail
+              ? {
+                  user: {
+                    ...(credential.fullName?.givenName || credential.fullName?.familyName
+                      ? { name: { firstName: credential.fullName?.givenName ?? '', lastName: credential.fullName?.familyName ?? '' } }
+                      : {}),
+                    ...(credential.email ? { email: credential.email } : {}),
+                  },
+                }
+              : {}),
+          },
+        }),
+      });
+      return await finishAuth(response, set);
+    } catch (err) {
+      if (err && typeof err === 'object' && 'code' in err && err.code === 'ERR_REQUEST_CANCELED') {
+        set({ loading: false });
+        return false; // user cancelled — not an error
+      }
+      set({ loading: false, error: 'Apple sign-in failed. Please try again.' });
       return false;
     }
   },

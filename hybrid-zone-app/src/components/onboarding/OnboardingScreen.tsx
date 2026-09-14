@@ -8,11 +8,16 @@ import { OnboardingHeader } from './OnboardingHeader';
 interface Props {
   progress?: number; // omit for no-header screens (loading/plan-preview/paywall)
   footer?: React.ReactNode;
+  // Absolutely-positioned layer rendered on top of the whole screen, outside
+  // the ScrollView — for content that must stay fixed in screen space while
+  // the user drags (e.g. Schedule's draggable day chips), so it isn't
+  // affected by scroll offset the way a child of `children` would be.
+  overlay?: React.ReactNode;
   children: React.ReactNode;
 }
 
 // Matches Onboarding.html's .stage shell: .qheader + .screen-scroll + .footer.
-export function OnboardingScreen({ progress, footer, children }: Props) {
+export function OnboardingScreen({ progress, footer, overlay, children }: Props) {
   const navigation = useNavigation();
 
   return (
@@ -24,6 +29,11 @@ export function OnboardingScreen({ progress, footer, children }: Props) {
         {children}
       </ScrollView>
       {footer && <View style={styles.footer}>{footer}</View>}
+      {overlay && (
+        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+          {overlay}
+        </View>
+      )}
     </SafeAreaView>
   );
 }

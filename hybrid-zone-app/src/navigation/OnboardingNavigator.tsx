@@ -2,6 +2,7 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { colors } from '@/theme/tokens';
 import type { OnboardingStackParamList } from './types';
+import { LocationPermissionScreen } from '@/screens/onboarding/LocationPermissionScreen';
 import { ExperienceScreen } from '@/screens/onboarding/ExperienceScreen';
 import { BiometricsScreen } from '@/screens/onboarding/BiometricsScreen';
 import { StrengthGoalScreen } from '@/screens/onboarding/StrengthGoalScreen';
@@ -27,6 +28,7 @@ const Stack = createNativeStackNavigator<OnboardingStackParamList>();
 export function OnboardingNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+      <Stack.Screen name="LocationPermission" component={LocationPermissionScreen} options={{ gestureEnabled: false }} />
       <Stack.Screen name="Experience" component={ExperienceScreen} />
       <Stack.Screen name="Biometrics" component={BiometricsScreen} />
       <Stack.Screen name="StrengthGoal" component={StrengthGoalScreen} />

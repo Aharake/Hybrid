@@ -17,8 +17,9 @@ activities, custom exercises, and overview preferences all persist per user).
 1. Copy `.env.example` to `.env` and fill in a local (or Railway) `DATABASE_URL`,
    plus a `BETTER_AUTH_SECRET` (generate one with `openssl rand -base64 32`).
    Google sign-in vars (`GOOGLE_CLIENT_ID_WEB`, `GOOGLE_CLIENT_ID_IOS`,
-   `GOOGLE_CLIENT_ID_ANDROID`, `GOOGLE_CLIENT_SECRET`) are optional — Google
-   sign-in is simply disabled until they're set. See "Google Sign-In setup" below.
+   `GOOGLE_CLIENT_ID_ANDROID`, `GOOGLE_CLIENT_SECRET`) and `APPLE_BUNDLE_IDENTIFIER`
+   are optional — each sign-in method is simply disabled until its vars are
+   set. See "Google Sign-In setup" and "Sign in with Apple setup" below.
 2. Install dependencies:
    ```
    npm install
@@ -80,6 +81,26 @@ client IDs registered per platform in Google Cloud Console:
 
 Until these are set, the "Continue with Google" button simply doesn't
 render — nothing breaks, it's just hidden.
+
+## Sign in with Apple setup
+
+Same native "ID token" pattern as Google above (on-device sign-in →
+identityToken → exchanged with Better Auth), but Apple's native flow signs
+the token's audience as the app's iOS bundle identifier directly — no
+Services ID, no OAuth client, no secret needed.
+
+1. On the [Apple Developer Portal](https://developer.apple.com/account/resources/identifiers/list),
+   open the app's Bundle ID (`Certificates, Identifiers & Profiles` →
+   `Identifiers`) and enable the **Sign In with Apple** capability, then
+   save. EAS will also offer to sync this automatically the next time you
+   run a build that includes the `expo-apple-authentication` plugin.
+2. **Set this on the Railway API service** (Settings → Variables):
+   - `APPLE_BUNDLE_IDENTIFIER` — the app's iOS bundle identifier (must match
+     `expo.ios.bundleIdentifier` in `hybrid-zone-app/app.json`)
+
+Until this is set, the "Sign in with Apple" button simply doesn't render —
+nothing breaks, it's just hidden. Unlike Google, no changes are needed in
+the Expo app's `.env` — the button already knows to only show on iOS.
 
 ## RevenueCat setup
 

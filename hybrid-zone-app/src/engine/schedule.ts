@@ -78,3 +78,10 @@ export function decDay(week: WeekSchedule, type: Discipline): WeekSchedule {
 export function tapDay(week: WeekSchedule, day: Dow, mode: Discipline): WeekSchedule {
   return { ...week, [day]: { ...week[day], [mode]: !week[day][mode] } };
 }
+
+// Unlike tapDay, always sets rather than toggles — used when a dragged day
+// chip is dropped onto a cell, where the drop should only ever turn a day
+// on (dropping onto an already-assigned day is rejected before this runs).
+export function setDay(week: WeekSchedule, day: Dow, mode: Discipline): WeekSchedule {
+  return { ...week, [day]: { ...week[day], [mode]: true } };
+}

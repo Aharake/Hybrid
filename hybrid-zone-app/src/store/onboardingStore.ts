@@ -12,6 +12,7 @@ import {
   emptyWeek,
   incDay as incDayInSchedule,
   initSchedule as buildInitialSchedule,
+  setDay as setDayInSchedule,
   tapDay as tapDayInSchedule,
 } from '@/engine/schedule';
 import { Equipment, RunningGoal, SplitValue, StrengthGoal } from '@/engine/planPreview';
@@ -39,6 +40,7 @@ interface OnboardingStore extends OnboardingFields {
   setField: <K extends keyof OnboardingFields>(key: K, value: OnboardingFields[K]) => void;
   setMode: (mode: Discipline) => void;
   tapDay: (day: Dow) => void;
+  assignDay: (day: Dow, type: Discipline) => void;
   incDay: (type: Discipline) => void;
   decDay: (type: Discipline) => void;
   acceptRunning: () => void;
@@ -74,6 +76,8 @@ export const useOnboardingStore = create<OnboardingStore>((set, get) => ({
   setMode: (mode) => set({ dayPickMode: mode }),
 
   tapDay: (day) => set((state) => ({ schedule: tapDayInSchedule(state.schedule, day, state.dayPickMode) })),
+
+  assignDay: (day, type) => set((state) => ({ schedule: setDayInSchedule(state.schedule, day, type) })),
 
   incDay: (type) => set((state) => ({ schedule: incDayInSchedule(state.schedule, type) })),
 
