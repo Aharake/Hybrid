@@ -1,5 +1,5 @@
 import React from 'react';
-import { GestureResponderEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts, radius } from '@/theme/tokens';
 import { MinusIcon, PlusIcon } from '@/icons';
 
@@ -9,7 +9,7 @@ interface Props {
   count: number;
   min?: number;
   max?: number;
-  onInc: (e: GestureResponderEvent) => void;
+  onInc: () => void;
   onDec: () => void;
   variant?: 'card' | 'pill'; // card = Onboarding.html's .stepper, pill = Tracker.html's .stepper-row
 }

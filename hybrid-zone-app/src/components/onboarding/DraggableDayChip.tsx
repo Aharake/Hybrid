@@ -28,13 +28,27 @@ interface Props {
   // null if it isn't over a valid, still-empty cell. Pure JS, called on the
   // JS thread once the finger lifts — not a worklet.
   resolveDrop: (center: Point) => DropHit | null;
-  // Called once the chip has finished animating into a cell — this is where
-  // the caller actually commits the day to the schedule and removes this
-  // chip from its pending list.
+  // Called the instant a drop is accepted (JS thread, synchronous) — the
+  // caller commits the day to the schedule right away and removes this chip
+  // from its pending list shortly after (enough for the animation below to
+  // be visible). Deliberately NOT wired through an animation callback: a
+  // worklet callback chain here (spring -> callback -> timing -> callback ->
+  // runOnJS) was the actual cause of a hard native crash previously, so the
+  // animation below is fire-and-forget and carries no logic.
   onDropped: (day: Dow) => void;
+  onCancelled: () => void;
 }
 
-export function DraggableDayChip({ type, origin, resolveDrop, onDropped }: Props) {
+// A neutral, saturated look (not the same white the day grid uses for an
+// active cell, and not the dark of an empty one) so the chip stays visible
+// while hovering over either — the earlier all-white chip could visually
+// vanish against an already-active (also white) day cell.
+const TINT: Record<Discipline, { bg: string; icon: string }> = {
+  strength: { bg: colors.green, icon: colors.greenText },
+  running: { bg: colors.blue, icon: '#fff' },
+};
+
+export function DraggableDayChip({ type, origin, resolveDrop, onDropped, onCancelled }: Props) {
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const scale = useSharedValue(0.4);
@@ -45,17 +59,19 @@ export function DraggableDayChip({ type, origin, resolveDrop, onDropped }: Props
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleEnd = (dx: number, dy: number) => {
+  const handleEnd = (dx: number, dy: number, moved: boolean) => {
+    if (!moved) {
+      // A tap rather than a drag — treat it as "never mind", not a drop.
+      onCancelled();
+      return;
+    }
     const hit = resolveDrop({ x: origin.x + dx, y: origin.y + dy });
     if (hit) {
       translateX.value = withSpring(hit.center.x - origin.x, { damping: 15, stiffness: 160 });
-      translateY.value = withSpring(hit.center.y - origin.y, { damping: 15, stiffness: 160 }, (finished) => {
-        if (!finished) return;
-        scale.value = withTiming(0.55, { duration: 120 });
-        opacity.value = withTiming(0, { duration: 160 }, (done) => {
-          if (done) runOnJS(onDropped)(hit.day);
-        });
-      });
+      translateY.value = withSpring(hit.center.y - origin.y, { damping: 15, stiffness: 160 });
+      scale.value = withTiming(0.5, { duration: 160 });
+      opacity.value = withTiming(0, { duration: 220 });
+      onDropped(hit.day);
     } else {
       translateX.value = withSpring(0, { damping: 15, stiffness: 160 });
       translateY.value = withSpring(0, { damping: 15, stiffness: 160 });
@@ -71,7 +87,8 @@ export function DraggableDayChip({ type, origin, resolveDrop, onDropped }: Props
       translateY.value = e.translationY;
     })
     .onEnd((e) => {
-      runOnJS(handleEnd)(e.translationX, e.translationY);
+      const moved = Math.abs(e.translationX) > 4 || Math.abs(e.translationY) > 4;
+      runOnJS(handleEnd)(e.translationX, e.translationY, moved);
     });
 
   const style = useAnimatedStyle(() => ({
@@ -79,10 +96,14 @@ export function DraggableDayChip({ type, origin, resolveDrop, onDropped }: Props
     opacity: opacity.value,
   }));
 
+  const tint = TINT[type];
+
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View style={[styles.chip, { left: origin.x - CHIP_SIZE / 2, top: origin.y - CHIP_SIZE / 2 }, style]}>
-        {type === 'strength' ? <BarbellIcon size={18} color="#000" /> : <RunIcon size={18} color={colors.blue} />}
+      <Animated.View
+        style={[styles.chip, { backgroundColor: tint.bg, left: origin.x - CHIP_SIZE / 2, top: origin.y - CHIP_SIZE / 2 }, style]}
+      >
+        {type === 'strength' ? <BarbellIcon size={18} color={tint.icon} /> : <RunIcon size={18} color={tint.icon} />}
       </Animated.View>
     </GestureDetector>
   );
@@ -94,11 +115,12 @@ const styles = StyleSheet.create({
     width: CHIP_SIZE,
     height: CHIP_SIZE,
     borderRadius: 14,
-    backgroundColor: colors.text,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(0,0,0,0.25)',
     shadowColor: '#000',
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.4,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
     elevation: 8,

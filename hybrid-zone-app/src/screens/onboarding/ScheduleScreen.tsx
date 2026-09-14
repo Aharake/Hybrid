@@ -1,11 +1,11 @@
 import React, { useRef, useState } from 'react';
-import { GestureResponderEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Stepper } from '@/components/Stepper';
-import { DraggableDayChip } from '@/components/onboarding/DraggableDayChip';
+import { DraggableDayChip, CHIP_SIZE } from '@/components/onboarding/DraggableDayChip';
 import { useOnboardingStore } from '@/store/onboardingStore';
 import { colors, fonts, typography } from '@/theme/tokens';
 import { BarbellIcon, InfoIcon, RunIcon, XIcon } from '@/icons';
@@ -23,13 +23,20 @@ interface Rect extends Point {
 interface PendingChip {
   id: string;
   type: Discipline;
-  origin: Point;
+  // null until its tray slot has been measured — the overlay chip only
+  // renders once this is known, so it always appears exactly over its slot.
+  origin: Point | null;
 }
 
 const MAX_DAYS = DAY_ORDER.length;
 // Extra margin around a day cell's measured rect that still counts as a hit —
 // makes the drop target more forgiving than the cell's exact visual bounds.
 const DROP_PADDING = 18;
+// How long a successfully-dropped chip's snap-and-fade animation gets to
+// play before it's actually removed from the pending list. Purely a JS
+// setTimeout, not tied to any animation completion callback — see
+// DraggableDayChip for why that distinction matters.
+const DROP_SETTLE_MS = 240;
 
 function ModeSeg({ mode, onChange }: { mode: Discipline; onChange: (m: Discipline) => void }) {
   return (
@@ -56,26 +63,42 @@ export function ScheduleScreen() {
   // Everything below converts on-screen (window) coordinates into a shared
   // "overlay-local" space — the overlay renders outside the ScrollView (see
   // OnboardingScreen's `overlay` prop) specifically so dragging isn't
-  // affected by scroll offset, which means both the chip's spawn point and
-  // the day cells' rects have to be measured in window space and then
+  // affected by scroll offset, which means both a chip's tray-slot origin
+  // and the day cells' rects have to be measured in window space and then
   // shifted by the overlay's own window origin to land in the same frame.
   const overlayRef = useRef<View>(null);
   const overlayOriginRef = useRef<Point>({ x: 0, y: 0 });
   const dayCellRefs = useRef<Partial<Record<Dow, View | null>>>({});
   const dayRectsRef = useRef<Partial<Record<Dow, Rect>>>({});
+  const traySlotRefs = useRef<Partial<Record<string, View | null>>>({});
 
-  const measureAll = () => {
+  const measureOverlayOrigin = (cb?: () => void) => {
     overlayRef.current?.measureInWindow((x, y) => {
       overlayOriginRef.current = { x, y };
+      cb?.();
     });
-    DAY_ORDER.forEach((d) => {
-      dayCellRefs.current[d]?.measureInWindow((x, y, width, height) => {
-        dayRectsRef.current[d] = {
-          x: x - overlayOriginRef.current.x,
-          y: y - overlayOriginRef.current.y,
-          width,
-          height,
-        };
+  };
+
+  const measureDayCells = () => {
+    measureOverlayOrigin(() => {
+      DAY_ORDER.forEach((d) => {
+        dayCellRefs.current[d]?.measureInWindow((x, y, width, height) => {
+          dayRectsRef.current[d] = {
+            x: x - overlayOriginRef.current.x,
+            y: y - overlayOriginRef.current.y,
+            width,
+            height,
+          };
+        });
+      });
+    });
+  };
+
+  const measureTraySlot = (chipId: string) => {
+    measureOverlayOrigin(() => {
+      traySlotRefs.current[chipId]?.measureInWindow((x, y, width, height) => {
+        const origin = { x: x - overlayOriginRef.current.x + width / 2, y: y - overlayOriginRef.current.y + height / 2 };
+        setPendingChips((prev) => prev.map((c) => (c.id === chipId && !c.origin ? { ...c, origin } : c)));
       });
     });
   };
@@ -92,13 +115,19 @@ export function ScheduleScreen() {
           ? 'Highly balanced weekly volume.'
           : 'Aggressive volume — make sure you can recover.';
 
-  const spawnChip = (type: Discipline) => (e: GestureResponderEvent) => {
+  const spawnChip = (type: Discipline) => () => {
     const committed = countDays(schedule, type);
     const pending = pendingChips.filter((c) => c.type === type).length;
     if (committed + pending >= MAX_DAYS) return;
-    const { pageX, pageY } = e.nativeEvent;
-    const origin = { x: pageX - overlayOriginRef.current.x, y: pageY - overlayOriginRef.current.y };
-    setPendingChips((prev) => [...prev, { id: `${type}-${Date.now()}-${Math.random()}`, type, origin }]);
+    setPendingChips((prev) => [...prev, { id: `${type}-${Date.now()}-${Math.random()}`, type, origin: null }]);
+  };
+
+  // Decrementing removes a committed day, but a still-undropped chip of the
+  // same type left floating around afterward is just confusing (there's no
+  // "day" left to give it) — clear those too so nothing gets stranded.
+  const decrementAndClear = (type: Discipline) => () => {
+    decDay(type);
+    setPendingChips((prev) => prev.filter((c) => c.type !== type));
   };
 
   const resolveDrop = (type: Discipline) => (center: Point) => {
@@ -119,6 +148,12 @@ export function ScheduleScreen() {
 
   const handleDropped = (chipId: string, type: Discipline) => (day: Dow) => {
     assignDay(day, type);
+    setTimeout(() => {
+      setPendingChips((prev) => prev.filter((c) => c.id !== chipId));
+    }, DROP_SETTLE_MS);
+  };
+
+  const handleCancelled = (chipId: string) => () => {
     setPendingChips((prev) => prev.filter((c) => c.id !== chipId));
   };
 
@@ -128,15 +163,18 @@ export function ScheduleScreen() {
       footer={<PrimaryButton label="Continue" onPress={() => navigation.navigate('Split')} />}
       overlay={
         <View ref={overlayRef} style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-          {pendingChips.map((chip) => (
-            <DraggableDayChip
-              key={chip.id}
-              type={chip.type}
-              origin={chip.origin}
-              resolveDrop={resolveDrop(chip.type)}
-              onDropped={handleDropped(chip.id, chip.type)}
-            />
-          ))}
+          {pendingChips
+            .filter((c): c is PendingChip & { origin: Point } => c.origin !== null)
+            .map((chip) => (
+              <DraggableDayChip
+                key={chip.id}
+                type={chip.type}
+                origin={chip.origin}
+                resolveDrop={resolveDrop(chip.type)}
+                onDropped={handleDropped(chip.id, chip.type)}
+                onCancelled={handleCancelled(chip.id)}
+              />
+            ))}
         </View>
       }
     >
@@ -147,7 +185,7 @@ export function ScheduleScreen() {
 
       <ModeSeg mode={dayPickMode} onChange={setMode} />
 
-      <View style={styles.dayGrid} onLayout={measureAll}>
+      <View style={styles.dayGrid} onLayout={measureDayCells}>
         {DAY_ORDER.map((d: Dow) => {
           const c = schedule[d];
           const both = c.strength && c.running;
@@ -160,7 +198,7 @@ export function ScheduleScreen() {
                 ref={(el) => {
                   dayCellRefs.current[d] = el;
                 }}
-                onLayout={measureAll}
+                onLayout={measureDayCells}
                 onPress={() => tapDay(d)}
                 style={[styles.dayCell, active && styles.dayCellActive]}
               >
@@ -182,25 +220,36 @@ export function ScheduleScreen() {
         })}
       </View>
 
-      {pendingChips.length > 0 && (
-        <Text style={styles.dragHint}>
-          Drag {pendingChips.length > 1 ? 'the new days' : 'the new day'} onto the calendar above
-        </Text>
-      )}
+      <View style={styles.tray}>
+        {pendingChips.length === 0 ? (
+          <Text style={styles.trayEmptyText}>New days you add below will appear here — drag them onto a day above</Text>
+        ) : (
+          pendingChips.map((chip) => (
+            <View
+              key={chip.id}
+              ref={(el) => {
+                traySlotRefs.current[chip.id] = el;
+              }}
+              onLayout={() => measureTraySlot(chip.id)}
+              style={styles.traySlot}
+            />
+          ))
+        )}
+      </View>
 
       <Stepper
         icon={<BarbellIcon size={16} color={colors.text} />}
         label="Strength days"
         count={sN}
         onInc={spawnChip('strength')}
-        onDec={() => decDay('strength')}
+        onDec={decrementAndClear('strength')}
       />
       <Stepper
         icon={<RunIcon size={16} color={colors.blue} />}
         label="Running days"
         count={rN}
         onInc={spawnChip('running')}
-        onDec={() => decDay('running')}
+        onDec={decrementAndClear('running')}
       />
 
       <View style={styles.infoBanner}>
@@ -219,7 +268,7 @@ const styles = StyleSheet.create({
   modeBtnActive: { backgroundColor: colors.text },
   modeBtnText: { fontFamily: fonts.bold, fontSize: 13.5, color: colors.textDim },
   modeBtnTextActive: { color: '#000' },
-  dayGrid: { flexDirection: 'row', gap: 6, marginBottom: 20 },
+  dayGrid: { flexDirection: 'row', gap: 6, marginBottom: 16 },
   dayCol: { flex: 1, alignItems: 'center', gap: 8 },
   dayName: { fontFamily: fonts.bold, fontSize: 11, color: colors.textDimmer },
   dayCell: {
@@ -233,13 +282,32 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   dayCellActive: { backgroundColor: colors.text },
-  dragHint: {
+  tray: {
+    minHeight: CHIP_SIZE + 24,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.card,
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 20,
+  },
+  trayEmptyText: {
+    flex: 1,
     fontFamily: fonts.medium,
     fontSize: 12.5,
-    color: colors.textDim,
+    color: colors.textDimmer,
     textAlign: 'center',
-    marginTop: -10,
-    marginBottom: 18,
+    lineHeight: 18,
+  },
+  traySlot: {
+    width: CHIP_SIZE,
+    height: CHIP_SIZE,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: colors.track,
   },
   infoBanner: {
     flexDirection: 'row',
