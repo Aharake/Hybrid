@@ -66,7 +66,7 @@ export function CustomWorkoutScreen() {
         <View style={{ width: 34 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <View style={{ gap: 8 }}>
           <Text style={typography.kicker}>Workout Name</Text>
           <TextInput

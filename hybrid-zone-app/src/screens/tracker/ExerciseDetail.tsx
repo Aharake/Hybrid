@@ -1,17 +1,14 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TrackerTabBar } from '@/components/tracker/TrackerTabBar';
-import { NewSessionSheet } from '@/components/tracker/NewSessionSheet';
 import { AddSetSheet } from '@/components/tracker/AddSetSheet';
-import { RunTrackerOverlay } from '@/components/tracker/RunTrackerOverlay';
-import { RunSetupSheet } from '@/components/tracker/RunSetupSheet';
-import { TrChevDownIcon, TrChevLeftIcon, TrChevRightIcon, TrMoreIcon, TrPlusIcon } from '@/icons';
+import { TrChevLeftIcon, TrPlusIcon } from '@/icons';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
-import { generateExerciseHistory, buildExerciseGraph, build1RMGraph, HistorySession } from '@/engine/exerciseHistory';
-import { fmtWeight, weightUnitLabel, weightValueOnly, UnitSystem } from '@/engine/units';
+import { buildExerciseHistory, buildExerciseGraph, build1RMGraph, HistorySession } from '@/engine/exerciseHistory';
+import { fmtWeightAuto, weightUnitLabel, weightValueAuto, UnitSystem } from '@/engine/units';
 import { useTrackerStore } from '@/store/trackerStore';
 
 const TABS: ['sets' | 'analyze' | '1rm', string][] = [
@@ -22,11 +19,32 @@ const TABS: ['sets' | 'analyze' | '1rm', string][] = [
 
 export function ExerciseDetail() {
   const navigation = useNavigation();
-  const { activeExerciseId, findExerciseById, exerciseDetailTab, selectExerciseTab, openExercise, unitSystem } = useTrackerStore();
+  const { activeExerciseId, findExerciseById, exerciseDetailTab, selectExerciseTab, openExercise, unitSystem, workoutLogs } = useTrackerStore();
 
-  const ex = findExerciseById(activeExerciseId || '') || findExerciseById('ex1')!;
-  const history = useMemo(() => generateExerciseHistory(ex.id, ex.previous), [ex.id, ex.previous]);
+  // activeExerciseId doubles as the "Log set" sheet's open flag and is cleared
+  // when that sheet closes — so remember the exercise this screen was opened
+  // for instead of falling back to a fixed one (which crashed once that
+  // exercise had been edited/removed, and showed the wrong lift otherwise).
+  const shownId = useRef<string | null>(activeExerciseId);
+  if (activeExerciseId) shownId.current = activeExerciseId;
+  const ex = shownId.current ? findExerciseById(shownId.current) : null;
+
+  const history = useMemo(() => (ex ? buildExerciseHistory(ex.name, workoutLogs) : []), [ex?.name, workoutLogs]);
   const historyDesc = useMemo(() => [...history].reverse(), [history]); // most-recent-first for the Sets list
+
+  // The exercise was deleted or swapped out while this screen was open.
+  if (!ex) {
+    return (
+      <SafeAreaView style={styles.screen} edges={['top']}>
+        <View style={styles.topRow}>
+          <Pressable style={styles.iconBtnRound} onPress={() => navigation.goBack()}>
+            <TrChevLeftIcon size={16} color={colors.text} />
+          </Pressable>
+        </View>
+        <Text style={[styles.h1, { padding: 20 }]}>This exercise is no longer in your workout.</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -34,9 +52,7 @@ export function ExerciseDetail() {
         <Pressable style={styles.iconBtnRound} onPress={() => navigation.goBack()}>
           <TrChevLeftIcon size={16} color={colors.text} />
         </Pressable>
-        <Pressable style={styles.iconBtnRound}>
-          <TrMoreIcon size={16} color={colors.text} />
-        </Pressable>
+        <View style={{ width: 34 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -56,17 +72,28 @@ export function ExerciseDetail() {
           })}
         </View>
 
-        {exerciseDetailTab === 'sets' && (
-          <View style={{ gap: 12 }}>
-            {historyDesc.map((day, di) => (
-              <HistCard key={di} day={day} unitSystem={unitSystem} />
-            ))}
+        {history.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No history yet</Text>
+            <Text style={styles.emptyText}>Log your first sets for {ex.name} with the + button and your history, progress graph and estimated 1RM will build up here.</Text>
           </View>
+        ) : (
+          <>
+            {exerciseDetailTab === 'sets' && (
+              <View style={{ gap: 12 }}>
+                {historyDesc.map((day, di) => (
+                  <HistCard key={di} day={day} unitSystem={unitSystem} />
+                ))}
+              </View>
+            )}
+
+            {exerciseDetailTab === 'analyze' &&
+              (history.length < 2 ? <NeedMoreData /> : <AnalyzeGraph history={history} unitSystem={unitSystem} />)}
+
+            {exerciseDetailTab === '1rm' &&
+              (history.length < 2 ? <NeedMoreData /> : <OneRMHistory history={history} unitSystem={unitSystem} />)}
+          </>
         )}
-
-        {exerciseDetailTab === 'analyze' && <AnalyzeGraph history={history} unitSystem={unitSystem} />}
-
-        {exerciseDetailTab === '1rm' && <OneRMHistory history={history} unitSystem={unitSystem} />}
       </ScrollView>
 
       <Pressable style={styles.fabLog} onPress={() => openExercise(ex.id)}>
@@ -79,10 +106,7 @@ export function ExerciseDetail() {
       </View>
       <TrackerTabBar active="StrengthTab" />
 
-      <NewSessionSheet />
       <AddSetSheet />
-      <RunTrackerOverlay />
-      <RunSetupSheet />
     </SafeAreaView>
   );
 }
@@ -92,7 +116,6 @@ function HistCard({ day, unitSystem }: { day: HistorySession; unitSystem: UnitSy
     <View style={styles.histCard}>
       <View style={styles.histHead}>
         <Text style={styles.histHeadText}>{day.date}</Text>
-        <TrChevDownIcon size={14} color={colors.text} />
       </View>
       {day.sets.map((st, i) => (
         <View key={i} style={[styles.histSet, i > 0 && styles.histSetBorder]}>
@@ -101,12 +124,24 @@ function HistCard({ day, unitSystem }: { day: HistorySession; unitSystem: UnitSy
           <Text style={styles.histReps}>
             {st.reps} <Text style={styles.histUnit}>rep</Text>
           </Text>
-          <Text style={styles.histWeight}>{fmtWeight(st.weight, unitSystem, st.weight < 10 ? 1 : 0)}</Text>
-          <TrChevRightIcon size={14} color={colors.text} />
+          <Text style={styles.histWeight}>{fmtWeightAuto(st.weight, unitSystem)}</Text>
         </View>
       ))}
     </View>
   );
+}
+
+function NeedMoreData() {
+  return (
+    <View style={styles.emptyCard}>
+      <Text style={styles.emptyTitle}>Not enough data yet</Text>
+      <Text style={styles.emptyText}>Log this exercise in at least two workouts to see how it's trending.</Text>
+    </View>
+  );
+}
+
+function graphLabel(date: string): string {
+  return date;
 }
 
 function AnalyzeGraph({ history, unitSystem }: { history: HistorySession[]; unitSystem: UnitSystem }) {
@@ -116,9 +151,9 @@ function AnalyzeGraph({ history, unitSystem }: { history: HistorySession[]; unit
       <View style={styles.graphTop}>
         <View>
           <Text style={styles.graphVal}>
-            {weightValueOnly(graph.lastWeight, unitSystem)} <Text style={styles.graphValUnit}>{weightUnitLabel(unitSystem)} top set</Text>
+            {weightValueAuto(graph.lastWeight, unitSystem)} <Text style={styles.graphValUnit}>{weightUnitLabel(unitSystem)} top set</Text>
           </Text>
-          <Text style={styles.graphSub}>Over the last 6 sessions</Text>
+          <Text style={styles.graphSub}>Over your last {history.length} sessions</Text>
         </View>
         <Text style={[styles.graphChange, { color: graph.trendUp ? colors.strength : colors.running }]}>
           {graph.trendUp ? '↑' : '↓'} {graph.trendUp ? '+' : ''}
@@ -134,7 +169,7 @@ function AnalyzeGraph({ history, unitSystem }: { history: HistorySession[]; unit
       <View style={styles.graphLabels}>
         {history.map((sess, i) => (
           <Text key={i} style={styles.graphLabel}>
-            {sess.date === 'This week' ? 'Now' : sess.date === 'Last week' ? '1w' : sess.date.replace(' weeks ago', 'w')}
+            {graphLabel(sess.date)}
           </Text>
         ))}
       </View>
@@ -151,7 +186,7 @@ function OneRMHistory({ history, unitSystem }: { history: HistorySession[]; unit
         <View style={styles.graphTop}>
           <View>
             <Text style={styles.graphVal}>
-              {weightValueOnly(graph.lastWeight, unitSystem)} <Text style={styles.graphValUnit}>{weightUnitLabel(unitSystem)} est. 1RM</Text>
+              {weightValueAuto(graph.lastWeight, unitSystem)} <Text style={styles.graphValUnit}>{weightUnitLabel(unitSystem)} est. 1RM</Text>
             </Text>
             <Text style={styles.graphSub}>Estimated from your top set each session</Text>
           </View>
@@ -169,14 +204,14 @@ function OneRMHistory({ history, unitSystem }: { history: HistorySession[]; unit
         <View style={styles.graphLabels}>
           {history.map((sess, i) => (
             <Text key={i} style={styles.graphLabel}>
-              {sess.date === 'This week' ? 'Now' : sess.date === 'Last week' ? '1w' : sess.date.replace(' weeks ago', 'w')}
+              {graphLabel(sess.date)}
             </Text>
           ))}
         </View>
       </View>
       <View style={styles.bestRow}>
-        <Text style={styles.bestLabel}>All-Time Best (est.)</Text>
-        <Text style={styles.bestVal}>{fmtWeight(graph.best, unitSystem, graph.best < 10 ? 1 : 0)}</Text>
+        <Text style={styles.bestLabel}>Best (est.)</Text>
+        <Text style={styles.bestVal}>{fmtWeightAuto(graph.best, unitSystem)}</Text>
       </View>
       <Text style={styles.disclaimer}>
         Estimated using the Epley formula from your heaviest set each session — not a tested max, so treat it as a guide rather than an exact number.
@@ -210,6 +245,9 @@ const styles = StyleSheet.create({
   bestRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderRadius: radius.lg, paddingVertical: 16, paddingHorizontal: 18 },
   bestLabel: { fontSize: 13, color: colors.text, fontFamily: fonts.medium },
   bestVal: { fontFamily: fonts.semiBold, fontSize: 16, color: colors.strength },
+  emptyCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 22, gap: 6 },
+  emptyTitle: { fontFamily: fonts.medium, fontSize: 14.5, color: colors.text },
+  emptyText: { fontSize: 12.5, lineHeight: 18, color: colors.neutral500, fontFamily: fonts.regular },
   disclaimer: { fontSize: 11, color: colors.neutral500, lineHeight: 16, paddingHorizontal: 2, fontFamily: fonts.regular },
   graphCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 18 },
   graphTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 },

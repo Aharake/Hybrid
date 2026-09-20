@@ -5,10 +5,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
 import { XIcon } from '@/icons';
 import { AchievementBadge } from '@/components/tracker/AchievementBadge';
-import { ACTIVITY_MILESTONES, PERSONAL_RECORDS, FIRSTS } from '@/store/trackerStore';
+import { useAchievements } from '@/hooks/useStats';
 
 export function AchievementsHubScreen() {
   const navigation = useNavigation();
+  const { milestones, records, firsts } = useAchievements();
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -25,7 +26,7 @@ export function AchievementsHubScreen() {
           <Text style={typography.sectionTitle}>Activity Milestones</Text>
           <Text style={styles.hint}>Tiers earn weight as you climb</Text>
           <View style={styles.grid}>
-            {ACTIVITY_MILESTONES.map((m) => (
+            {milestones.map((m) => (
               <AchievementBadge key={m.id} item={m} shape="hex" size={76} />
             ))}
           </View>
@@ -35,9 +36,9 @@ export function AchievementsHubScreen() {
 
         <View>
           <Text style={typography.sectionTitle}>Personal Records</Text>
-          <Text style={styles.hint}>Your fastest time at each distance</Text>
+          <Text style={styles.hint}>Your fastest time at each distance, measured from your GPS runs</Text>
           <View style={styles.grid}>
-            {PERSONAL_RECORDS.map((p) => (
+            {records.map((p) => (
               <AchievementBadge key={p.id} item={p} shape="hex" size={76} />
             ))}
           </View>
@@ -49,7 +50,7 @@ export function AchievementsHubScreen() {
           <Text style={typography.sectionTitle}>Firsts</Text>
           <Text style={styles.hint}>Earned once, dated the day you did it</Text>
           <View style={styles.grid}>
-            {FIRSTS.map((f) => (
+            {firsts.map((f) => (
               <AchievementBadge key={f.id} item={f} shape="disc" size={76} />
             ))}
           </View>

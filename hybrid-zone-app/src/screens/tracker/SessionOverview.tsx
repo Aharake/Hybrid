@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
@@ -9,9 +9,9 @@ import { SwapExerciseSheet } from '@/components/tracker/SwapExerciseSheet';
 import { AddExerciseSheet } from '@/components/tracker/AddExerciseSheet';
 import { TrChartIcon, TrChevLeftIcon, TrChevRightIcon, TrClockIcon, TrPlayIcon, TrStrengthIcon, TrSwapIcon, TrTrashIcon } from '@/icons';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
-import { TODAY_DAY_FULL } from '@/engine/calendar';
+import { getTodayFull } from '@/engine/calendar';
 import { useTrackerStore, SessionExercise } from '@/store/trackerStore';
-import { fmtWeight, weightToKg, weightUnitLabel, weightValueOnly } from '@/engine/units';
+import { fmtWeightAuto, weightToKg, weightUnitLabel, weightValueAuto } from '@/engine/units';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function SessionOverview() {
@@ -38,10 +38,25 @@ export function SessionOverview() {
     unitSystem,
   } = useTrackerStore();
 
-  const sess = sessions[activeSessionKey];
-  const isToday = sess.day === TODAY_DAY_FULL;
-  const titleText = isToday ? "Today's Workout" : `${sess.day}'s Workout`;
   const [finishing, setFinishing] = useState(false);
+  const sess = sessions[activeSessionKey];
+
+  // The session was removed (e.g. the program was edited) while this screen was open.
+  if (!sess) {
+    return (
+      <SafeAreaView style={styles.screen} edges={['top']}>
+        <View style={styles.topRow}>
+          <Pressable style={styles.iconBtnRound} onPress={() => navigation.goBack()}>
+            <TrChevLeftIcon size={16} color={colors.text} />
+          </Pressable>
+        </View>
+        <Text style={[styles.h1, { padding: 20, fontSize: 22, lineHeight: 28 }]}>This workout is no longer in your program.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  const isToday = sess.day === getTodayFull();
+  const titleText = isToday ? "Today's Workout" : sess.day === 'Unscheduled' ? 'Workout' : `${sess.day}'s Workout`;
 
   const viewExercise = (ex: SessionExercise) => {
     viewExerciseAnalytics(ex.id);
@@ -62,7 +77,8 @@ export function SessionOverview() {
     if (!result.ok) {
       Alert.alert(
         "Couldn't save this workout",
-        (result.error ?? 'Check your connection and try again.') + ' Your logged sets are still shown here for now.',
+        (result.error ?? 'Check your connection and try again.') +
+          " Your workout is saved on this device and will upload automatically the next time you're online.",
       );
     }
   };
@@ -90,7 +106,7 @@ export function SessionOverview() {
         )}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <Text style={styles.kicker}>{titleText}</Text>
         <Text style={styles.h1}>{activeSessionKey}</Text>
         <View style={styles.pillsRow}>
@@ -176,22 +192,22 @@ export function SessionOverview() {
                       rows.map((row, i) => (
                         <View key={i} style={styles.setRow}>
                           <Text style={styles.setNum}>{i + 1}</Text>
-                          <Text style={styles.setPrev}>{ex.previous ? fmtWeight(ex.previous, unitSystem) : '—'}</Text>
+                          <Text style={styles.setPrev}>{ex.previous ? fmtWeightAuto(ex.previous, unitSystem) : '—'}</Text>
                           <View style={styles.setField}>
-                            <TextInput
+                            <NumField
                               style={[styles.setFieldInput, { color: '#22c55e' }]}
-                              keyboardType="numeric"
-                              value={String(row.reps)}
-                              onChangeText={(v) => updateSet(ex.id, i, 'reps', parseFloat(v) || 0)}
+                              value={row.reps}
+                              toText={(n) => String(n)}
+                              onChange={(n) => updateSet(ex.id, i, 'reps', Math.round(n))}
                             />
                             <Text style={styles.unit}>rep</Text>
                           </View>
                           <View style={styles.setField}>
-                            <TextInput
+                            <NumField
                               style={[styles.setFieldInput, { color: '#f5a623' }]}
-                              keyboardType="numeric"
-                              value={weightValueOnly(row.weight, unitSystem, row.weight < 10 ? 1 : 0)}
-                              onChangeText={(v) => updateSet(ex.id, i, 'weight', weightToKg(parseFloat(v) || 0, unitSystem))}
+                              value={row.weight}
+                              toText={(kg) => weightValueAuto(kg, unitSystem)}
+                              onChange={(n) => updateSet(ex.id, i, 'weight', weightToKg(n, unitSystem))}
                             />
                             <Text style={styles.unit}>{weightUnitLabel(unitSystem)}</Text>
                           </View>
@@ -231,6 +247,38 @@ export function SessionOverview() {
       <SwapExerciseSheet />
       <AddExerciseSheet />
     </SafeAreaView>
+  );
+}
+
+// A number box that keeps the text being typed as-is while focused (so "82.",
+// or clearing the box to retype, isn't snapped back to "0"), and only
+// reformats from the stored value once the user leaves it.
+function NumField({ value, toText, onChange, style }: { value: number; toText: (n: number) => string; onChange: (n: number) => void; style: object }) {
+  const [text, setText] = useState(toText(value));
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(toText(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <TextInput
+      style={style}
+      keyboardType="decimal-pad"
+      value={text}
+      selectTextOnFocus
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onBlur={() => {
+        focused.current = false;
+        setText(toText(value));
+      }}
+      onChangeText={(v) => {
+        setText(v);
+        const n = parseFloat(v.replace(',', '.'));
+        onChange(Number.isFinite(n) && n >= 0 ? n : 0);
+      }}
+    />
   );
 }
 

@@ -24,6 +24,21 @@ export function fmtWeight(kg: number, unitSystem: UnitSystem, decimals = 0): str
   return `${kg.toFixed(decimals)} kg`;
 }
 
+// A weight for display: whole numbers stay whole ("80 kg"), anything else
+// keeps one decimal ("82.5 kg") — rounding 82.5 to "83" would misreport the
+// lift and, if edited, re-save the wrong number.
+export function fmtWeightAuto(kg: number, unitSystem: UnitSystem): string {
+  const v = unitSystem === 'imperial' ? kg * 2.20462 : kg;
+  const r = Math.round(v * 10) / 10;
+  return `${Number.isInteger(r) ? r.toFixed(0) : r.toFixed(1)} ${weightUnitLabel(unitSystem)}`;
+}
+
+export function weightValueAuto(kg: number, unitSystem: UnitSystem): string {
+  const v = unitSystem === 'imperial' ? kg * 2.20462 : kg;
+  const r = Math.round(v * 10) / 10;
+  return Number.isInteger(r) ? r.toFixed(0) : r.toFixed(1);
+}
+
 export function weightUnitLabel(unitSystem: UnitSystem): string {
   return unitSystem === 'imperial' ? 'lb' : 'kg';
 }

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 
-const EFFECTIVE_DATE = 'September 12, 2026';
+const EFFECTIVE_DATE = 'September 20, 2026';
 const CONTACT_EMAIL = 'aharake10@gmail.com';
 
 function page(title: string, bodyHtml: string): string {
@@ -39,18 +39,22 @@ const privacyBody = `
 
 <h2>Information we collect</h2>
 <ul>
-  <li><strong>Account information:</strong> your email address, and either a password (stored as a salted hash, never in plain text) or your Google account identifier and name if you sign in with Google.</li>
+  <li><strong>Account information:</strong> your email address and name, and either a password (stored as a salted hash, never in plain text) or, if you sign in with Google or Apple, that account's identifier, name and email. If you use Apple's "Hide My Email", we receive and store Apple's private relay address instead of your real one.</li>
+  <li><strong>Profile photo:</strong> if you add one, a small copy of the picture you choose (resized on your device) is stored with your account so it appears on all your devices.</li>
   <li><strong>Profile & fitness data:</strong> information you provide during onboarding, such as age, weight, height, training experience, and fitness goals.</li>
   <li><strong>Workout data:</strong> your training program, workout sessions, and logged sets (exercise, weight, reps).</li>
   <li><strong>Run activity data:</strong> distance, duration, pace, and — for runs you track with GPS — your route, recorded as a series of location points with timestamps.</li>
-  <li><strong>Preferences:</strong> app settings such as which stats are shown on your dashboards and your preferred units.</li>
+  <li><strong>Preferences:</strong> app settings such as which stats are shown on your dashboards, your preferred units, rest-timer and run defaults.</li>
 </ul>
+
+<h2>Health data</h2>
+<p>If you choose to connect Apple Health (iOS) or Health Connect (Android), Hyvo reads your steps, active energy, sleep and heart rate <strong>on your device</strong> to show them in the app. Hyvo only reads this data; it never writes to or changes it. This health data is not uploaded to our servers, not stored in your account, and not shared with anyone. You can disconnect at any time in the app and remove Hyvo's access in your device's Health settings.</p>
 
 <h2>Location data</h2>
 <p>Hyvo only records your location while you have actively started a tracked run, including while the app is in the background or your phone is locked — this is what lets a run keep recording if you lock your screen. A persistent notification is shown on Android while tracking is active, and you can stop tracking at any time by ending the run. Location data recorded this way is used solely to compute your route, distance, pace, and to draw the map for that run. Hyvo does not track your location at any other time, and does not use your location for advertising or sell it to anyone.</p>
 
 <h2>What we don't collect</h2>
-<p>If you add a background photo to a run's share card, that photo is selected from your device's photo library, composited, and shared entirely on your device — it is never uploaded to or stored on our servers.</p>
+<p>If you add a background photo to a run's share card, that photo is selected from your device's photo library, composited, and shared entirely on your device — it is never uploaded to or stored on our servers. (Profile photos are different: see "Profile photo" above.)</p>
 
 <h2>How we use your information</h2>
 <p>We use the information above solely to operate the app's core functionality: to authenticate you, to save and sync your program, workout history, and run history to your account so it's available if you reinstall the app or sign in on another device, and to personalize what you see in the app. We do not sell your personal information, and we do not use it for third-party advertising.</p>
@@ -58,12 +62,13 @@ const privacyBody = `
 <h2>Third-party services</h2>
 <ul>
   <li><strong>Better Auth</strong> and our database provider (hosted on Railway) — used to authenticate you and store your account data securely.</li>
-  <li><strong>Google Sign-In</strong> — if you choose to sign in with Google, Google processes that sign-in according to its own privacy policy.</li>
+  <li><strong>Google Sign-In</strong> and <strong>Sign in with Apple</strong> — if you choose either, that provider processes the sign-in according to its own privacy policy.</li>
+  <li><strong>RevenueCat</strong> — manages Hyvo Pro subscriptions. It receives an anonymous app user ID and your purchase and entitlement status; payment itself is handled by the Apple App Store or Google Play, and we never see your card details.</li>
+  <li><strong>Apple Maps / Google Maps</strong> — used to display the map for your runs. Showing a map sends the map area being viewed to the map provider.</li>
 </ul>
-<p>If we introduce new features that involve additional third-party services (for example, payment processing for subscriptions), we'll update this policy to reflect them.</p>
 
 <h2>Data retention & deletion</h2>
-<p>We retain your data for as long as your account is active. To request deletion of your account and associated data, email <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a> from the address associated with your account, and we'll delete it within a reasonable time.</p>
+<p>We retain your data for as long as your account is active. You can permanently delete your account and all associated data at any time in the app under Profile → Privacy → Delete My Account, which takes effect immediately. You can also email <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a> from the address associated with your account. Deleting your account does not cancel an active subscription, which you manage in your App Store or Google Play subscription settings.</p>
 
 <h2>Security</h2>
 <p>We take reasonable technical measures to protect your data, including encrypted transport (HTTPS) and hashed password storage. No method of transmission or storage is 100% secure, and we can't guarantee absolute security.</p>
@@ -105,7 +110,7 @@ const termsBody = `
 <p>If Hyvo offers paid subscriptions, purchases are processed through the Apple App Store or Google Play, subject to their respective terms, and any subscription terms (price, billing period, cancellation) will be clearly presented before purchase.</p>
 
 <h2>Termination</h2>
-<p>You may stop using the app and request deletion of your account at any time by contacting <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a>. We may suspend or terminate accounts that violate these terms.</p>
+<p>You may stop using the app and delete your account at any time in the app (Profile → Privacy → Delete My Account), or by contacting <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a>. We may suspend or terminate accounts that violate these terms.</p>
 
 <h2>Disclaimer & limitation of liability</h2>
 <p>Hyvo is provided "as is" without warranties of any kind. To the fullest extent permitted by law, we are not liable for any indirect, incidental, or consequential damages arising from your use of the app, including reliance on GPS accuracy, calorie estimates, or training recommendations.</p>

@@ -170,6 +170,8 @@ model WorkoutLog {
   sessionKey        String // denormalized label, kept even if the session is later renamed/deleted
 
   date DateTime @default(now())
+  // How long the workout timer ran, in seconds — null for logs saved before this was tracked.
+  durationSec Int?
 
   loggedSets LoggedSet[]
 
@@ -197,10 +199,11 @@ model RunActivity {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   type     String
+  title    String? // user-entered / default name; null for older rows (the app falls back to a per-type default)
   date     DateTime @default(now())
   distance Float
   duration String
-  route    Json? // [{latitude, longitude, timestamp}] captured via GPS — null for runs logged without location
+  route    Json? // [{latitude, longitude, timestamp, altitude?}] captured via GPS — null for runs logged without location
 
   @@map("run_activity")
 }
@@ -221,6 +224,7 @@ model Preferences {
   userId         String   @unique
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   enabledMetrics Json // { home: {...}, strength: {...}, running: {...} }
+  settings       Json? // { unitSystem, restDuration, runType, distanceGoal } — per-account app settings, so they follow the user across devices
   updatedAt      DateTime @updatedAt
 
   @@map("preferences")

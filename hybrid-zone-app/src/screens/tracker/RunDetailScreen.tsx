@@ -11,6 +11,8 @@ import { MetricTile } from '@/components/tracker/MetricTile';
 import { useTrackerStore } from '@/store/trackerStore';
 import { distanceUnitLabel, distanceValueOnly, fmtDistance, fmtPaceFromSecPerKm } from '@/engine/units';
 import { DetailScreenHeader } from '@/components/tracker/DetailScreenHeader';
+import { DeleteActivityButton } from '@/components/tracker/DeleteActivityButton';
+import { activityWhen } from '@/engine/records';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function RunDetailScreen() {
@@ -20,33 +22,36 @@ export function RunDetailScreen() {
 
   if (!a || !a.runStats) return <SafeAreaView style={styles.screen} edges={['top']} />;
   const rs = a.runStats;
-  const avgPaceSecPerKm = (rs.duration * 60) / rs.distance;
+  const avgPaceSecPerKm = rs.distance > 0 ? (rs.duration * 60) / rs.distance : 0;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <DetailScreenHeader
         title={a.title}
         right={
-          <Pressable
-            style={styles.iconBtnRound}
-            onPress={() => {
-              openRunShareCard();
-              navigation.navigate('RunShareCard');
-            }}
-          >
-            <TrShareIcon size={16} color={colors.text} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Pressable
+              style={styles.iconBtnRound}
+              onPress={() => {
+                openRunShareCard();
+                navigation.navigate('RunShareCard');
+              }}
+            >
+              <TrShareIcon size={16} color={colors.text} />
+            </Pressable>
+            <DeleteActivityButton />
+          </View>
         }
       />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.time}>{a.time}</Text>
+        <Text style={styles.time}>{activityWhen(a)}</Text>
         <View style={styles.routeWrap}>
           {rs.route && rs.route.length > 1 ? <RunRouteMap route={rs.route} style={styles.map} /> : <RoutePathSvg size={230} color={colors.text} />}
         </View>
         <View style={styles.statsRow}>
           <Stat label="Distance" val={fmtDistance(rs.distance, unitSystem)} />
-          <Stat label="Duration" val={`${rs.duration} min`} />
-          <Stat label="Avg Pace" val={fmtPaceFromSecPerKm(avgPaceSecPerKm, unitSystem)} />
+          <Stat label="Duration" val={`${Math.round(rs.duration)} min`} />
+          <Stat label="Avg Pace" val={avgPaceSecPerKm > 0 ? fmtPaceFromSecPerKm(avgPaceSecPerKm, unitSystem) : '—'} />
         </View>
         <View style={styles.metricsGrid}>
           <MetricTile label="Calorie Burn" value={String(rs.calories)} unit="kcal" widthPct={100} />

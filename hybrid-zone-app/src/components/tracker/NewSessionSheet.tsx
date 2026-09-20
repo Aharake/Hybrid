@@ -5,7 +5,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { TrOtherIcon, TrPlusIcon, TrRunSmallIcon, TrStrengthIcon } from '@/icons';
 import { Sheet } from './Sheet';
-import { useTrackerStore, STRENGTH_WORKOUT_OPTIONS } from '@/store/trackerStore';
+import { useTrackerStore } from '@/store/trackerStore';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 // Matches Tracker (new).html's newSessionSheet() — opened from the tab bar's FAB.
@@ -14,14 +14,21 @@ export function NewSessionSheet() {
   const { sheetOpen, sheetTab, sessions, closeAddSession, openRunTracker, setActiveSessionKey, openLogActivityForm } = useTrackerStore();
   const strengthActive = sheetTab === 'strength';
 
-  const selectPreset = (workoutName: string) => {
-    // 'Push Day' -> 'Push', matching the keys sessions is keyed by.
-    const key = workoutName.replace(/ Day$/, '');
+  // "Custom Workout" first, then the user's own sessions — whatever their
+  // program is (full body, upper/lower, PPL, custom…), not a fixed list.
+  const options = [
+    { name: 'Custom Workout', subtitle: 'Build your own from scratch', isCustom: true },
+    ...Object.keys(sessions).map((key) => ({
+      name: key,
+      subtitle: sessions[key].muscleGroups.length ? sessions[key].muscleGroups.map((m) => m.name).join(', ') : `${sessions[key].exercises.length} exercises`,
+      isCustom: false,
+    })),
+  ];
+
+  const selectSession = (key: string) => {
     closeAddSession();
-    if (sessions[key]) {
-      setActiveSessionKey(key);
-      navigation.navigate('SessionOverview');
-    }
+    setActiveSessionKey(key);
+    navigation.navigate('SessionOverview');
   };
 
   return (
@@ -55,7 +62,7 @@ export function NewSessionSheet() {
       </View>
       {strengthActive && (
         <View style={{ gap: 8 }}>
-          {STRENGTH_WORKOUT_OPTIONS.map((wk) => (
+          {options.map((wk) => (
             <Pressable
               key={wk.name}
               style={styles.option}
@@ -64,7 +71,7 @@ export function NewSessionSheet() {
                   closeAddSession();
                   navigation.navigate('CustomWorkout');
                 } else {
-                  selectPreset(wk.name);
+                  selectSession(wk.name);
                 }
               }}
             >

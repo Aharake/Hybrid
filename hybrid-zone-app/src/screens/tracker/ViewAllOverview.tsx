@@ -7,13 +7,14 @@ import { TrChevLeftIcon } from '@/icons';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
 import { DAY_FULL_MAP } from '@/engine/calendar';
 import { useTrackerStore, OVERVIEW_METRICS, MetricContext, SessionKey } from '@/store/trackerStore';
-import { metricDisplayValue } from '@/engine/units';
+import { useMetrics } from '@/hooks/useStats';
 
 const SECTION_LABELS: Record<MetricContext, string> = { home: 'Home', strength: 'Strength', running: 'Running' };
 
 export function ViewAllOverview() {
   const navigation = useNavigation();
   const { sessions, viewDay, sets, enabled, toggleMetric, unitSystem } = useTrackerStore();
+  const metrics = useMetrics();
 
   const viewDayFull = DAY_FULL_MAP[viewDay];
   const sessionKeys = Object.keys(sessions) as SessionKey[];
@@ -42,19 +43,18 @@ export function ViewAllOverview() {
               <Text style={[typography.sectionTitle, styles.sectionSpacing]}>{SECTION_LABELS[ctx]}</Text>
               <View style={isStrength ? styles.strengthRow : styles.metricsGrid}>
                 {OVERVIEW_METRICS[ctx].map((m) => {
-                  const rawValue = ctx === 'strength' && m.id === 'done' ? doneLive : m.value;
-                  // Strength-context tiles show the raw stored value, unconverted (matches the source).
-                  const disp = isStrength ? { value: rawValue, unit: m.unit } : metricDisplayValue(rawValue, m.unit, unitSystem);
+                  const r = metrics[ctx][m.id];
+                  const strengthValue = ctx === 'strength' && m.id === 'done' ? doneLive : `${r.value}${r.unit ? ` ${r.unit}` : ''}`;
                   return (
                     <MetricTile
                       key={m.id}
                       variant={isStrength ? 'strength' : 'card'}
                       icon={m.icon}
-                      label={m.label}
-                      value={disp.value}
-                      unit={disp.unit}
+                      label={r.label ?? m.label}
+                      value={isStrength ? strengthValue : r.value}
+                      unit={isStrength ? '' : r.unit}
                       big={!isStrength && m.big}
-                      bars={m.bars}
+                      bars={r.bars}
                       toggled={enabled[ctx][m.id]}
                       onPress={() => toggleMetric(ctx, m.id)}
                       widthPct={isStrength ? 31 : ctx === 'home' ? (m.big ? 48 : 31) : 48}

@@ -7,24 +7,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CalendarWeekWidget } from '@/components/tracker/CalendarWeekWidget';
 import { MetricTile } from '@/components/tracker/MetricTile';
 import { TrackerTabBar } from '@/components/tracker/TrackerTabBar';
-import { NewSessionSheet } from '@/components/tracker/NewSessionSheet';
-import { RunTrackerOverlay } from '@/components/tracker/RunTrackerOverlay';
-import { RunSetupSheet } from '@/components/tracker/RunSetupSheet';
 import { TrPlayIcon, TrRunSmallIcon, TrSlidersIcon } from '@/icons';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
 import { DAY_FULL_MAP } from '@/engine/calendar';
 import { useTrackerStore, OVERVIEW_METRICS } from '@/store/trackerStore';
-import { fmtDistance, metricDisplayValue } from '@/engine/units';
+import { fmtDistance, fmtPaceFromSecPerKm } from '@/engine/units';
+import { activityWhen } from '@/engine/records';
+import { useMetrics } from '@/hooks/useStats';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function RunningTab() {
   const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
-  const { runSessions, viewDay, isViewingToday, enabled, setOverviewContext, openRunTracker, openRunSetup, unitSystem } = useTrackerStore();
+  const { runSessions, viewDay, isViewingToday, enabled, setOverviewContext, openRunTracker, openRunSetup, unitSystem, activities, openActivityDetail } =
+    useTrackerStore();
 
   const viewRun = runSessions[viewDay] || null;
   const dayLabel = isViewingToday() ? 'Today' : DAY_FULL_MAP[viewDay];
   const today = isViewingToday();
+  const metrics = useMetrics();
   const runningMetrics = OVERVIEW_METRICS.running.filter((m) => enabled.running[m.id]);
+  const recentRuns = activities.filter((a) => a.type === 'running' && a.runStats).slice(0, 4);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -42,12 +44,6 @@ export function RunningTab() {
               </Defs>
               <Path d="M-10 27 C 40 8, 70 30, 120 18 S 200 4, 240 19 S 300 10, 350 12" fill="none" stroke="url(#routeFade)" strokeWidth={2} strokeLinecap="round" />
             </Svg>
-            {today && (
-              <View style={styles.gpsPill}>
-                <View style={styles.gpsDot} />
-                <Text style={styles.gpsPillText}>GPS locked</Text>
-              </View>
-            )}
           </View>
           <View style={styles.heroBody}>
             <Text style={styles.heroKicker}>{viewRun ? `${dayLabel}'s Run` : today ? 'Outdoor Workout' : dayLabel}</Text>
@@ -57,13 +53,13 @@ export function RunningTab() {
                 <>
                   <HeroStat val={fmtDistance(viewRun.distance, unitSystem)} lbl="Target" />
                   <HeroStat val={`${viewRun.duration} min`} lbl="Duration" />
-                  <HeroStat val={viewRun.pace} lbl="Target pace" />
+                  <HeroStat val={viewRun.pace} lbl="Effort" />
                 </>
               ) : (
                 <>
-                  <HeroStat val={fmtDistance(12.4, unitSystem)} lbl="This week" />
-                  <HeroStat val="5'12&quot;" lbl="Avg pace" />
-                  <HeroStat val="62°F" lbl="Clear skies" />
+                  <HeroStat val={`${metrics.running.weekly_dist.value} ${metrics.running.weekly_dist.unit}`} lbl="This week" />
+                  <HeroStat val={metrics.running.avg_pace.value === '—' ? '—' : `${metrics.running.avg_pace.value}${metrics.running.avg_pace.unit}`} lbl="Avg pace (30d)" />
+                  <HeroStat val={metrics.running.runs_monthly.value} lbl="Runs this month" />
                 </>
               )}
             </View>
@@ -96,42 +92,48 @@ export function RunningTab() {
           </View>
           <View style={styles.metricsGrid}>
             {runningMetrics.map((m) => {
-              const disp = metricDisplayValue(m.value, m.unit, unitSystem);
-              return <MetricTile key={m.id} icon={m.icon} label={m.label} value={disp.value} unit={disp.unit} widthPct={48} />;
+              const r = metrics.running[m.id];
+              return <MetricTile key={m.id} icon={m.icon} label={r.label ?? m.label} value={r.value} unit={r.unit} widthPct={48} />;
             })}
           </View>
         </View>
 
         <View>
           <Text style={[typography.sectionTitle, { marginBottom: 10 }]}>Recent Runs</Text>
-          <View style={{ gap: 8 }}>
-            <View style={styles.activityRow}>
-              <View style={styles.activityIco}>
-                <TrRunSmallIcon size={17} color={colors.accent200} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.activityTitle}>Sunset River Trail Run</Text>
-                <Text style={styles.activityMeta}>5.2 km · 28:12 · 5'25"/km</Text>
-              </View>
-              <Text style={styles.activityTime}>Yesterday</Text>
+          {recentRuns.length ? (
+            <View style={{ gap: 8 }}>
+              {recentRuns.map((a) => {
+                const rs = a.runStats!;
+                const pace = fmtPaceFromSecPerKm((rs.duration * 60) / rs.distance, unitSystem);
+                return (
+                  <Pressable
+                    key={a.date}
+                    style={styles.activityRow}
+                    onPress={() => {
+                      openActivityDetail(activities.indexOf(a));
+                      navigation.navigate('RunDetail');
+                    }}
+                  >
+                    <View style={styles.activityIco}>
+                      <TrRunSmallIcon size={17} color={colors.accent200} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.activityTitle}>{a.title}</Text>
+                      <Text style={styles.activityMeta}>
+                        {fmtDistance(rs.distance, unitSystem)} · {Math.round(rs.duration)} min · {pace}
+                      </Text>
+                    </View>
+                    <Text style={styles.activityTime}>{activityWhen(a)}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
-            <View style={styles.activityRow}>
-              <View style={styles.activityIco}>
-                <TrRunSmallIcon size={17} color={colors.accent200} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.activityTitle}>Interval Threshold Run</Text>
-                <Text style={styles.activityMeta}>4.0 km · 20:45 · 5'11"/km</Text>
-              </View>
-              <Text style={styles.activityTime}>Oct 21</Text>
-            </View>
-          </View>
+          ) : (
+            <Text style={styles.activityMeta}>Your recorded runs will show up here.</Text>
+          )}
         </View>
       </ScrollView>
       <TrackerTabBar active="RunningTab" />
-      <NewSessionSheet />
-      <RunTrackerOverlay />
-      <RunSetupSheet />
     </SafeAreaView>
   );
 }

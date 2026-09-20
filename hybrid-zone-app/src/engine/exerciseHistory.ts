@@ -1,7 +1,8 @@
-// Deterministic per-exercise history — pure port of seededRandom()/
-// generateExerciseHistory()/renderExerciseGraph()'s math. Seeded by a string hash
-// (not Math.random()), so the same exercise id always produces the same 6-session
-// history and graph — not randomized fresh on every render.
+// Exercise history built from the user's real saved workouts: every time
+// they logged this exercise, what they lifted. No sample data — an exercise
+// that has never been logged has an empty history.
+import { clockTime, shortDate } from './dates';
+import type { WorkoutLogRecord } from './records';
 
 export interface HistorySet {
   num: number;
@@ -16,40 +17,28 @@ export interface HistorySession {
   sets: HistorySet[];
 }
 
-export function seededRandom(seed: string): number {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) {
-    h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return (h % 1000) / 1000;
+// Most recent `limit` sessions, oldest first (so graphs read left to right).
+export function buildExerciseHistory(exerciseName: string, logs: WorkoutLogRecord[], limit = 12): HistorySession[] {
+  const target = exerciseName.toLowerCase();
+  const sessions: HistorySession[] = [];
+  [...logs]
+    .sort((a, b) => a.date - b.date)
+    .forEach((log) => {
+      const rows = log.sets.filter((s) => s.exerciseName.toLowerCase() === target);
+      if (!rows.length) return;
+      sessions.push({
+        date: shortDate(log.date),
+        topWeight: Math.max(...rows.map((r) => r.weight)),
+        sets: rows.map((r, i) => ({ num: i + 1, time: clockTime(log.date), reps: r.reps, weight: r.weight })),
+      });
+    });
+  return sessions.slice(-limit);
 }
 
-// Deterministic per-exercise history generator: same exercise id always produces
-// the same 6-session history, with a gentle upward weight trend (older sessions
-// lighter) plus natural session-to-session variance.
-export function generateExerciseHistory(exId: string, currentWeight: number | null): HistorySession[] {
-  const base = currentWeight || 15 + seededRandom(exId + '_base') * 45;
-  const sessions: HistorySession[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const trend = 1 - i * 0.03; // older sessions ~3%/session lighter
-    const variance = 0.94 + seededRandom(exId + '_v' + i) * 0.12;
-    const sessionWeight = Math.round((base * trend * variance) / 2.5) * 2.5;
-    const setCount = 3;
-    const sets: HistorySet[] = [];
-    for (let s = 0; s < setCount; s++) {
-      const repVariance = seededRandom(exId + '_r' + i + '_' + s);
-      const reps = 6 + Math.floor(repVariance * 6);
-      const setWeight = s === setCount - 1 ? Math.max(2.5, sessionWeight - 2.5) : sessionWeight; // last set often a slight drop-off
-      sets.push({ num: s + 1, time: `${7 + s}:0${2 + s * 3} PM`, reps, weight: setWeight });
-    }
-    const weeksAgo = i;
-    sessions.push({
-      date: weeksAgo === 0 ? 'This week' : weeksAgo === 1 ? 'Last week' : `${weeksAgo} weeks ago`,
-      topWeight: sessionWeight,
-      sets,
-    });
-  }
-  return sessions;
+// Top weight from the exercise's most recent session, or null if it has never been logged.
+export function lastLoggedWeight(exerciseName: string, logs: WorkoutLogRecord[]): number | null {
+  const history = buildExerciseHistory(exerciseName, logs, 1);
+  return history.length ? history[0].topWeight : null;
 }
 
 export interface GraphPoint {
@@ -77,7 +66,7 @@ export function buildExerciseGraph(history: HistorySession[]): ExerciseGraph {
   const h = 130;
   const padX = 16;
   const padY = 16;
-  const stepX = (w - padX * 2) / (history.length - 1);
+  const stepX = (w - padX * 2) / Math.max(1, history.length - 1);
   const points: GraphPoint[] = history.map((sess, i) => ({
     x: padX + i * stepX,
     y: padY + (1 - (sess.topWeight - minW) / range) * (h - padY * 2),
@@ -100,7 +89,7 @@ export interface OneRMGraph extends ExerciseGraph {
 }
 
 export function build1RMGraph(history: HistorySession[]): OneRMGraph {
-  const oneRMs = history.map((sess) => estimate1RM(sess.sets[0].weight, sess.sets[0].reps));
+  const oneRMs = history.map((sess) => Math.max(...sess.sets.map((set) => estimate1RM(set.weight, set.reps))));
   const minW = Math.min(...oneRMs);
   const maxW = Math.max(...oneRMs);
   const range = Math.max(1, maxW - minW);
@@ -108,7 +97,7 @@ export function build1RMGraph(history: HistorySession[]): OneRMGraph {
   const h = 130;
   const padX = 16;
   const padY = 16;
-  const stepX = (w - padX * 2) / (history.length - 1);
+  const stepX = (w - padX * 2) / Math.max(1, history.length - 1);
   const points: GraphPoint[] = oneRMs.map((val, i) => ({
     x: padX + i * stepX,
     y: padY + (1 - (val - minW) / range) * (h - padY * 2),

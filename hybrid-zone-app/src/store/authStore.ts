@@ -38,6 +38,9 @@ export interface AuthUser {
   id: string;
   email: string;
   name?: string | null;
+  // Profile photo, stored as a small (~256px) JPEG data URI in Better Auth's
+  // built-in `image` field — see updateProfile below.
+  image?: string | null;
 }
 
 interface AuthStore {
@@ -49,6 +52,8 @@ interface AuthStore {
   signIn: (email: string, password: string) => Promise<boolean>;
   signInWithGoogle: () => Promise<boolean>;
   signInWithApple: () => Promise<boolean>;
+  // Updates the signed-in user's name and/or photo (Better Auth update-user).
+  updateProfile: (fields: { name?: string; image?: string | null }) => Promise<boolean>;
   signOut: () => Promise<void>;
   // Permanently deletes the account server-side, then clears local state the
   // same way signOut does. Does not cancel an active RevenueCat/store
@@ -104,8 +109,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
       useRootStore.getState().setPhase('onboarding');
       return;
     }
+    let status: number | null = null; // null = couldn't reach the server
     try {
       const response = await apiFetch('/api/auth/get-session', { method: 'GET' });
+      status = response.status;
       if (response.ok) {
         const data = await response.json();
         if (data?.user) {
@@ -115,12 +122,21 @@ export const useAuthStore = create<AuthStore>((set) => ({
           useSubscriptionStore.getState().loginUser(data.user.id).catch(() => {});
           return;
         }
+        status = 401; // 200 but no user: the server no longer recognises this token
       }
     } catch {
-      // network error on launch — fall through and treat as logged out
+      status = null;
     }
-    await clearStoredToken();
-    useRootStore.getState().setPhase('onboarding');
+    if (status === 401 || status === 403) {
+      await clearStoredToken();
+      useRootStore.getState().setPhase('onboarding');
+      return;
+    }
+    // Offline, or the server had a hiccup: the token is very likely still
+    // valid, so don't sign the user out (and drop them into the quiz) — let them
+    // in and load their data as soon as we can reach the server again.
+    useRootStore.getState().setPhase('authenticated');
+    useTrackerStore.getState().hydrateFromBackend().catch(() => {});
   },
 
   signUp: async (email, password, name) => {
@@ -234,13 +250,32 @@ export const useAuthStore = create<AuthStore>((set) => ({
           },
         }),
       });
-      return await finishAuth(response, set);
+      const ok = await finishAuth(response, set);
+      // Apple only sends the name on the very first authorization; if this
+      // account somehow has none yet (e.g. created before we forwarded it),
+      // fill it in now while we have it.
+      const appleName = [credential.fullName?.givenName, credential.fullName?.familyName].filter(Boolean).join(' ');
+      if (ok && appleName && !useAuthStore.getState().user?.name) {
+        await useAuthStore.getState().updateProfile({ name: appleName });
+      }
+      return ok;
     } catch (err) {
       if (err && typeof err === 'object' && 'code' in err && err.code === 'ERR_REQUEST_CANCELED') {
         set({ loading: false });
         return false; // user cancelled — not an error
       }
       set({ loading: false, error: 'Apple sign-in failed. Please try again.' });
+      return false;
+    }
+  },
+
+  updateProfile: async (fields) => {
+    try {
+      const response = await apiFetch('/api/auth/update-user', { method: 'POST', body: JSON.stringify(fields) });
+      if (!response.ok) return false;
+      set((s) => (s.user ? { user: { ...s.user, ...fields } } : {}));
+      return true;
+    } catch {
       return false;
     }
   },

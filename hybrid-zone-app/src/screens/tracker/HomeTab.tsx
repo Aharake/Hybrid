@@ -8,19 +8,20 @@ import { RingCluster } from '@/components/tracker/RingCluster';
 import { MetricTile } from '@/components/tracker/MetricTile';
 import { HeroCard } from '@/components/tracker/HeroCard';
 import { TrackerTabBar } from '@/components/tracker/TrackerTabBar';
-import { NewSessionSheet } from '@/components/tracker/NewSessionSheet';
 import { MetricDetailSheet } from '@/components/tracker/MetricDetailSheet';
 import { MetricIcon } from '@/components/tracker/iconMap';
 import { TrHistoryIcon, TrSlidersIcon } from '@/icons';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
 import { DAY_FULL_MAP } from '@/engine/calendar';
 import { useTrackerStore, OVERVIEW_METRICS, ACTIVITY_ICONS } from '@/store/trackerStore';
-import { fmtDistance, metricDisplayValue } from '@/engine/units';
+import { fmtDistance } from '@/engine/units';
+import { activityMeta, activityWhen } from '@/engine/records';
+import { useMetrics } from '@/hooks/useStats';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function HomeTab() {
   const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
-  const { sessions, runSessions, viewDay, isViewingToday, enabled, setOverviewContext, openProgramEditor, unitSystem, activities, getActivityRoute, openActivityDetail } =
+  const { sessions, runSessions, viewDay, isViewingToday, enabled, setOverviewContext, openProgramEditor, unitSystem, activities, getActivityRoute, openActivityDetail, setActiveSessionKey } =
     useTrackerStore();
 
   const sessionKeys = Object.keys(sessions) as (keyof typeof sessions)[];
@@ -44,9 +45,13 @@ export function HomeTab() {
       }
     : null;
 
-  const goToStrength = () => navigation.reset({ index: 0, routes: [{ name: 'StrengthTab' }] });
+  const goToStrength = () => {
+    if (viewStrengthKey) setActiveSessionKey(viewStrengthKey);
+    navigation.reset({ index: 0, routes: [{ name: 'StrengthTab' }] });
+  };
   const goToRunning = () => navigation.reset({ index: 0, routes: [{ name: 'RunningTab' }] });
 
+  const metrics = useMetrics();
   const homeMetrics = OVERVIEW_METRICS.home.filter((m) => enabled.home[m.id]);
 
   return (
@@ -95,10 +100,8 @@ export function HomeTab() {
           </View>
           <View style={styles.metricsGrid}>
             {homeMetrics.map((m) => {
-              const disp = metricDisplayValue(m.value, m.unit, unitSystem);
-              return (
-                <MetricTile key={m.id} icon={m.icon} label={m.label} value={disp.value} unit={disp.unit} big={m.big} bars={m.bars} widthPct={m.big ? 48 : 31} />
-              );
+              const r = metrics.home[m.id];
+              return <MetricTile key={m.id} icon={m.icon} label={r.label ?? m.label} value={r.value} unit={r.unit} big={m.big} bars={r.bars} widthPct={m.big ? 48 : 31} />;
             })}
           </View>
         </View>
@@ -125,9 +128,9 @@ export function HomeTab() {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.activityTitle}>{a.title}</Text>
-                      <Text style={styles.activityMeta}>{a.meta}</Text>
+                      <Text style={styles.activityMeta}>{activityMeta(a, unitSystem)}</Text>
                     </View>
-                    <Text style={styles.activityTime}>{a.time}</Text>
+                    <Text style={styles.activityTime}>{activityWhen(a)}</Text>
                   </Pressable>
                 );
               })}
@@ -144,7 +147,6 @@ export function HomeTab() {
         </View>
       </ScrollView>
       <TrackerTabBar active="HomeTab" />
-      <NewSessionSheet />
       <MetricDetailSheet />
     </SafeAreaView>
   );

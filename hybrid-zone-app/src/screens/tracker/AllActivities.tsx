@@ -9,6 +9,7 @@ import { MetricIcon } from '@/components/tracker/iconMap';
 import { TrChevDownIcon, TrChevLeftIcon, TrHistoryIcon } from '@/icons';
 import { colors, fonts } from '@/theme/trackerTokens';
 import { useTrackerStore, ACTIVITY_ICONS, ActivityType } from '@/store/trackerStore';
+import { activityDaysAgo, activityMeta, activityWhen } from '@/engine/records';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 const RANGE_LABELS: Record<string, string> = { week: 'Week', month: 'Month', year: 'Year', all: 'All' };
@@ -16,13 +17,13 @@ const TYPE_LABELS: Record<string, string> = { all: 'All Activities', cycling: 'C
 
 export function AllActivities() {
   const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
-  const { activities, activityFilter, openFilterSheet, getActivityRoute, openActivityDetail } = useTrackerStore();
+  const { activities, activityFilter, openFilterSheet, getActivityRoute, openActivityDetail, unitSystem } = useTrackerStore();
 
   const filtered = activities.filter((a) => {
     if (activityFilter.type !== 'all' && a.type !== activityFilter.type) return false;
-    if (activityFilter.range === 'week' && a.daysAgo > 7) return false;
-    if (activityFilter.range === 'month' && a.daysAgo > 30) return false;
-    if (activityFilter.range === 'year' && a.daysAgo > 365) return false;
+    if (activityFilter.range === 'week' && activityDaysAgo(a) > 7) return false;
+    if (activityFilter.range === 'month' && activityDaysAgo(a) > 30) return false;
+    if (activityFilter.range === 'year' && activityDaysAgo(a) > 365) return false;
     return true;
   });
 
@@ -57,15 +58,15 @@ export function AllActivities() {
                 }
               : undefined;
             return (
-              <Pressable key={i} style={styles.row} onPress={onPress} disabled={!onPress}>
+              <Pressable key={`${a.type}-${a.date}-${i}`} style={styles.row} onPress={onPress} disabled={!onPress}>
                 <View style={styles.ico}>
                   <MetricIcon id={ACTIVITY_ICONS[a.type as ActivityType]} size={17} color={colors.accent200} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowTitle}>{a.title}</Text>
-                  <Text style={styles.rowMeta}>{a.meta}</Text>
+                  <Text style={styles.rowMeta}>{activityMeta(a, unitSystem)}</Text>
                 </View>
-                <Text style={styles.rowTime}>{a.time}</Text>
+                <Text style={styles.rowTime}>{activityWhen(a)}</Text>
               </Pressable>
             );
           })}
@@ -73,7 +74,7 @@ export function AllActivities() {
       ) : (
         <View style={styles.empty}>
           <TrHistoryIcon size={28} color={colors.neutral500} />
-          <Text style={styles.emptyText}>No activities match this filter.</Text>
+          <Text style={styles.emptyText}>{activities.length ? 'No activities match this filter.' : 'Nothing logged yet — finish a workout or a run and it will appear here.'}</Text>
         </View>
       )}
       <TrackerTabBar active="HomeTab" />

@@ -5,7 +5,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
 import { ParticleCloud } from '@/components/onboarding/ParticleCloud';
 import { Checklist } from '@/components/onboarding/Checklist';
-import { TestimonialCard } from '@/components/onboarding/TestimonialCard';
 import { useOnboardingStore } from '@/store/onboardingStore';
 import { colors, fonts } from '@/theme/tokens';
 import type { OnboardingStackParamList } from '@/navigation/types';
@@ -27,8 +26,7 @@ export function LoadingScreen() {
         <ParticleCloud />
         <Text style={styles.title}>Personalizing your plan</Text>
         <Text style={styles.sub}>Hang tight — this takes a few seconds.</Text>
-        <Checklist items={items} onComplete={() => navigation.navigate('PlanPreview')} />
-        <TestimonialCard />
+        <Checklist items={items} onComplete={() => navigation.replace('PlanPreview')} />
       </View>
     </OnboardingScreen>
   );

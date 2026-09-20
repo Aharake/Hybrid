@@ -2,6 +2,7 @@ export interface RoutePoint {
   latitude: number;
   longitude: number;
   timestamp: number; // ms epoch
+  altitude?: number | null; // metres above sea level, when the device reports it
 }
 
 // Haversine formula — great-circle distance between two points, in km.
@@ -45,4 +46,31 @@ export function normalizeRouteToUnitSquare(points: RoutePoint[]): { x: number; y
     x: (p.longitude - minLon) / range,
     y: 1 - (p.latitude - minLat) / range,
   }));
+}
+
+// Total climb along a route, in metres. Altitude readings jitter by a few
+// metres even when standing still, so a rise only counts once it has moved
+// more than the threshold from the last counted level.
+export function elevationGainM(route: RoutePoint[], thresholdM = 3): number {
+  let gain = 0;
+  let ref: number | null = null;
+  for (const p of route) {
+    if (p.altitude == null) continue;
+    if (ref === null) {
+      ref = p.altitude;
+      continue;
+    }
+    const delta = p.altitude - ref;
+    if (delta >= thresholdM) {
+      gain += delta;
+      ref = p.altitude;
+    } else if (delta <= -thresholdM) {
+      ref = p.altitude;
+    }
+  }
+  return gain;
+}
+
+export function routeHasAltitude(route: RoutePoint[]): boolean {
+  return route.some((p) => p.altitude != null);
 }

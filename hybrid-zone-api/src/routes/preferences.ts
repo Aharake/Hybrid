@@ -4,7 +4,15 @@ import { prisma } from '../lib/prisma.js';
 import { requireUser } from '../lib/requireUser.js';
 
 const bodySchema = z.object({
-  enabledMetrics: z.record(z.string(), z.record(z.string(), z.boolean())),
+  enabledMetrics: z.record(z.string(), z.record(z.string(), z.boolean())).optional(),
+  settings: z
+    .object({
+      unitSystem: z.enum(['metric', 'imperial']).optional(),
+      restDuration: z.number().int().min(15).max(600).optional(),
+      runType: z.enum(['open', 'distance', 'interval']).optional(),
+      distanceGoal: z.number().min(1).max(100).optional(),
+    })
+    .optional(),
 });
 
 export async function preferencesRoutes(app: FastifyInstance) {
@@ -23,10 +31,15 @@ export async function preferencesRoutes(app: FastifyInstance) {
       reply.code(400).send({ error: parsed.error.flatten() });
       return;
     }
+    const { enabledMetrics, settings } = parsed.data;
+    const existing = await prisma.preferences.findUnique({ where: { userId: user.id } });
+    // Partial updates: a save that only carries `settings` must not wipe the
+    // metric toggles, and vice versa. Settings are merged key by key.
+    const mergedSettings = settings ? { ...((existing?.settings as object | null) ?? {}), ...settings } : undefined;
     const prefs = await prisma.preferences.upsert({
       where: { userId: user.id },
-      create: { userId: user.id, enabledMetrics: parsed.data.enabledMetrics },
-      update: { enabledMetrics: parsed.data.enabledMetrics },
+      create: { userId: user.id, enabledMetrics: enabledMetrics ?? {}, settings: mergedSettings },
+      update: { ...(enabledMetrics ? { enabledMetrics } : {}), ...(mergedSettings ? { settings: mergedSettings } : {}) },
     });
     reply.send(prefs);
   });

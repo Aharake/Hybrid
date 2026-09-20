@@ -1,4 +1,5 @@
 import React from 'react';
+import { View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { colors } from '@/theme/trackerTokens';
 import type { TrackerStackParamList } from './trackerTypes';
@@ -21,6 +22,7 @@ import { UpgradeScreen } from '@/screens/tracker/UpgradeScreen';
 import { ConnectedAppsScreen } from '@/screens/tracker/ConnectedAppsScreen';
 import { PrivacySettingsScreen } from '@/screens/tracker/PrivacySettingsScreen';
 import { RunDetailScreen } from '@/screens/tracker/RunDetailScreen';
+import { TrackerOverlays } from '@/components/tracker/TrackerOverlays';
 import { StrengthDetailScreen } from '@/screens/tracker/StrengthDetailScreen';
 import { OtherActivityDetailScreen } from '@/screens/tracker/OtherActivityDetailScreen';
 import { LogActivityFormScreen } from '@/screens/tracker/LogActivityFormScreen';
@@ -35,6 +37,7 @@ const Stack = createNativeStackNavigator<TrackerStackParamList>();
 // stack to just that screen (see TrackerTabBar).
 export function TrackerNavigator() {
   return (
+    <View style={{ flex: 1 }}>
     <Stack.Navigator initialRouteName="HomeTab" screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
       <Stack.Screen name="HomeTab" component={HomeTab} />
       <Stack.Screen name="StrengthTab" component={StrengthTab} />
@@ -59,5 +62,7 @@ export function TrackerNavigator() {
       <Stack.Screen name="LogActivityForm" component={LogActivityFormScreen} />
       <Stack.Screen name="RunShareCard" component={RunShareCardScreen} />
     </Stack.Navigator>
+    <TrackerOverlays />
+    </View>
   );
 }

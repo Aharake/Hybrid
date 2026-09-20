@@ -1,5 +1,5 @@
-import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { XIcon } from '@/icons';
 
@@ -16,9 +16,20 @@ interface Props {
 // Matches Tracker (new).html's .sheet-scrim / .sheet — the bottom-sheet chrome
 // shared by every overlay/sheet in the new design.
 export function Sheet({ visible, onClose, title, tall, zIndex = 30, headerExtra, children }: Props) {
+  useEffect(() => {
+    if (!visible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
+
   if (!visible) return null;
   return (
-    <View style={[styles.scrim, { zIndex }]}>
+    // Lifts the sheet with the keyboard (the scrim is absolutely positioned, so
+    // nothing else would move it) and shrinks its %-based height to fit above it.
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.scrim, { zIndex }]}>
       <View style={[styles.sheet, tall && styles.sheetTall]}>
         <View style={styles.head}>
           {headerExtra ?? (title ? <Text style={styles.title}>{title}</Text> : <View />)}
@@ -26,11 +37,11 @@ export function Sheet({ visible, onClose, title, tall, zIndex = 30, headerExtra,
             <XIcon size={13} color={colors.neutral600} />
           </Pressable>
         </View>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           {children}
         </ScrollView>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

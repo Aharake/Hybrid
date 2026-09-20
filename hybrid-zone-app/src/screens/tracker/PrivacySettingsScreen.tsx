@@ -44,14 +44,15 @@ export function PrivacySettingsScreen() {
         <Pressable style={styles.iconBtnRound} onPress={() => navigation.goBack()}>
           <TrChevLeftIcon size={16} color={colors.text} />
         </Pressable>
-        <Text style={styles.topTitle}>Privacy & Sharing</Text>
+        <Text style={styles.topTitle}>Privacy & Data</Text>
         <View style={{ width: 34 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Text style={styles.blurb}>
-          Hyvo stores your account, program, workout history, and run history (including GPS routes for tracked runs) so it's
-          available across devices. It's never sold or used for advertising.
+          Hyvo stores your account, profile photo, program, workout history, and run history (including GPS routes for tracked runs)
+          so it's available across devices. Health data from Apple Health / Health Connect stays on your device. Nothing is sold or
+          used for advertising.
         </Text>
 
         <View style={styles.settingsList}>

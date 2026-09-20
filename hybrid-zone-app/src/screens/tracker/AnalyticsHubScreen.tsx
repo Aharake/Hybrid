@@ -34,7 +34,7 @@ export function AnalyticsHubScreen() {
         <View style={{ width: 34 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <TextInput
           style={styles.search}
           placeholder="Search exercises…"

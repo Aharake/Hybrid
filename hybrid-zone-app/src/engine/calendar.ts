@@ -1,6 +1,6 @@
-// Calendar week-picker — pure port of the new Tracker design's getWeekDays()/
-// weekRangeLabel(). The mock "today" is a fixed anchor (not the real device date),
-// matching the source's demo data exactly (see plan's "Mock 'today' stays fixed" note).
+// Calendar week-picker (getWeekDays()/weekRangeLabel()). "Today" and the visible
+// weeks are always derived from the real device date.
+import { startOfWeekMonday } from './dates';
 
 export type DayLabel = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
 
@@ -16,30 +16,24 @@ export const DAY_FULL_MAP: Record<DayLabel, string> = {
   Sun: 'Sunday',
 };
 
-export const TODAY_DAY_SHORT: DayLabel = 'Sat';
-export const TODAY_DAY_FULL = DAY_FULL_MAP[TODAY_DAY_SHORT];
+// Read at call time (not cached at import) so a session left open past
+// midnight still resolves the right day.
+export function getTodayShort(): DayLabel {
+  return DAY_LABELS[(new Date().getDay() + 6) % 7];
+}
+export function getTodayFull(): string {
+  return DAY_FULL_MAP[getTodayShort()];
+}
 
 export const FULL_TO_DAY_LABEL: Record<string, DayLabel> = Object.fromEntries(
   DAY_LABELS.map((label) => [DAY_FULL_MAP[label], label]),
 ) as Record<string, DayLabel>;
-
-export const WEEKLY_PATTERN: Record<DayLabel, { strength: boolean; running: boolean }> = {
-  Mon: { strength: true, running: false },
-  Tue: { strength: false, running: true },
-  Wed: { strength: true, running: false },
-  Thu: { strength: true, running: false },
-  Fri: { strength: false, running: false },
-  Sat: { strength: true, running: true },
-  Sun: { strength: false, running: false },
-};
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-// The Monday of week-offset 0 — a fixed demo anchor, not `new Date()`.
-const BASE_MONDAY = new Date(2026, 9, 23); // Oct 23 2026
 
 export interface WeekDay {
   label: DayLabel;
@@ -51,25 +45,23 @@ export interface WeekDay {
   isToday: boolean;
 }
 
-// strengthDays/runningDays override WEEKLY_PATTERN's static flags with the
-// user's actual current program (sessions[key].day / Object.keys(runSessions),
-// kept live via the Program Editor) — falls back to the static pattern only
-// where a set isn't provided (e.g. onboarding, before any program exists).
+// strengthDays/runningDays mark the days the user's current program schedules
+// a strength session / run on (sessions[key].day / Object.keys(runSessions)).
 export function getWeekDays(weekOffset: number, strengthDays?: Set<DayLabel>, runningDays?: Set<DayLabel>): WeekDay[] {
-  const monday = new Date(BASE_MONDAY.getTime());
+  const monday = new Date(startOfWeekMonday(Date.now()));
   monday.setDate(monday.getDate() + weekOffset * 7);
+  const today = getTodayShort();
   return DAY_LABELS.map((label, i) => {
     const d = new Date(monday.getTime());
     d.setDate(d.getDate() + i);
-    const pattern = WEEKLY_PATTERN[label];
     return {
       label,
       date: String(d.getDate()),
       month: d.getMonth(),
       year: d.getFullYear(),
-      strength: strengthDays ? strengthDays.has(label) : pattern.strength,
-      running: runningDays ? runningDays.has(label) : pattern.running,
-      isToday: weekOffset === 0 && label === TODAY_DAY_SHORT,
+      strength: strengthDays ? strengthDays.has(label) : false,
+      running: runningDays ? runningDays.has(label) : false,
+      isToday: weekOffset === 0 && label === today,
     };
   });
 }
@@ -86,5 +78,12 @@ export function weekRangeLabel(weekOffset: number): string {
 }
 
 export function isViewingToday(viewWeekOffset: number, viewDay: DayLabel): boolean {
-  return viewWeekOffset === 0 && viewDay === TODAY_DAY_SHORT;
+  return viewWeekOffset === 0 && viewDay === getTodayShort();
+}
+
+// Local midnight timestamp of a given day in the week `weekOffset` weeks from now.
+export function dateOfWeekDay(weekOffset: number, label: DayLabel): number {
+  const d = new Date(startOfWeekMonday(Date.now()));
+  d.setDate(d.getDate() + weekOffset * 7 + DAY_LABELS.indexOf(label));
+  return d.getTime();
 }

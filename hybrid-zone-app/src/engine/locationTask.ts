@@ -21,7 +21,7 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   if (store.runStatus !== 'running') return;
 
   locations.forEach((loc) => {
-    store.addRoutePoint({ latitude: loc.coords.latitude, longitude: loc.coords.longitude, timestamp: loc.timestamp });
+    store.addRoutePoint({ latitude: loc.coords.latitude, longitude: loc.coords.longitude, timestamp: loc.timestamp, altitude: loc.coords.altitude });
   });
 });
 

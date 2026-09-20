@@ -8,10 +8,12 @@ const routePointSchema = z.object({
   latitude: z.number(),
   longitude: z.number(),
   timestamp: z.number(),
+  altitude: z.number().nullable().optional(),
 });
 
 const createSchema = z.object({
   type: z.string(),
+  title: z.string().max(120).optional(),
   date: z.string().datetime().optional(),
   distance: z.number(),
   duration: z.string(),
@@ -37,11 +39,12 @@ export async function runActivitiesRoutes(app: FastifyInstance) {
       reply.code(400).send({ error: parsed.error.flatten() });
       return;
     }
-    const { type, date, distance, duration, route } = parsed.data;
+    const { type, title, date, distance, duration, route } = parsed.data;
     const activity = await prisma.runActivity.create({
       data: {
         userId: user.id,
         type,
+        title,
         distance,
         duration,
         date: date ? new Date(date) : undefined,

@@ -35,7 +35,7 @@ export function LogActivityFormScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <DetailScreenHeader title="Log Activity" variant="x" />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <View>
           <Text style={styles.sectionTitle}>Type</Text>
           <View style={styles.typeRow}>

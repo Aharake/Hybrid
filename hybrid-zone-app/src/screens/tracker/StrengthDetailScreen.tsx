@@ -3,7 +3,9 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { useTrackerStore } from '@/store/trackerStore';
-import { fmtWeight } from '@/engine/units';
+import { fmtWeightAuto } from '@/engine/units';
+import { activityWhen } from '@/engine/records';
+import { DeleteActivityButton } from '@/components/tracker/DeleteActivityButton';
 import { DetailScreenHeader } from '@/components/tracker/DetailScreenHeader';
 
 export function StrengthDetailScreen() {
@@ -16,11 +18,11 @@ export function StrengthDetailScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <DetailScreenHeader title={a.title} />
+      <DetailScreenHeader title={a.title} right={<DeleteActivityButton />} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.time}>{a.time}</Text>
+        <Text style={styles.time}>{activityWhen(a)}</Text>
         <View style={styles.statsRow}>
-          <Stat label="Time" val={`${ss.duration} min`} />
+          <Stat label="Time" val={ss.duration ? `${ss.duration} min` : '—'} />
           <Stat label="Exercises" val={String(ss.exercises.length)} />
           <Stat label="Total Sets" val={String(totalSets)} />
         </View>
@@ -36,7 +38,7 @@ export function StrengthDetailScreen() {
               {ex.sets.map((s, i) => (
                 <View key={i} style={styles.setRow}>
                   <Text style={[styles.setNum, { width: 24 }]}>{i + 1}</Text>
-                  <Text style={styles.setVal}>{fmtWeight(s.weight, unitSystem, s.weight < 10 ? 1 : 0)}</Text>
+                  <Text style={styles.setVal}>{fmtWeightAuto(s.weight, unitSystem)}</Text>
                   <Text style={styles.setVal}>{s.reps}</Text>
                 </View>
               ))}

@@ -4,12 +4,12 @@ import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { TrChevLeftIcon, TrChevRightIcon } from '@/icons';
+import Constants from 'expo-constants';
 import { API_BASE_URL } from '@/api/client';
 
-const LINKS: { label: string; url: string | null }[] = [
+const LINKS: { label: string; url: string }[] = [
   { label: 'Terms of Service', url: `${API_BASE_URL}/terms` },
   { label: 'Privacy Policy', url: `${API_BASE_URL}/privacy` },
-  { label: 'Licenses', url: null },
 ];
 
 export function AboutScreen() {
@@ -31,14 +31,13 @@ export function AboutScreen() {
         </View>
         <Text style={styles.appName}>Hyvo</Text>
         <Text style={styles.tagline}>Strength Meets Endurance</Text>
-        <Text style={styles.version}>Version 1.0.0 (Prototype)</Text>
+        <Text style={styles.version}>Version {Constants.expoConfig?.version ?? '—'}</Text>
         <View style={styles.settingsList}>
           {LINKS.map(({ label, url }, i) => (
             <Pressable
               key={label}
               style={[styles.row, i !== LINKS.length - 1 && styles.rowBorder]}
-              disabled={!url}
-              onPress={() => url && Linking.openURL(url)}
+              onPress={() => Linking.openURL(url)}
             >
               <Text style={styles.rowLabel}>{label}</Text>
               <TrChevRightIcon size={14} color={colors.text} />

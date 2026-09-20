@@ -160,7 +160,7 @@ export function ScheduleScreen() {
   return (
     <OnboardingScreen
       progress={84}
-      footer={<PrimaryButton label="Continue" onPress={() => navigation.navigate('Split')} />}
+      footer={<PrimaryButton label="Continue" disabled={total === 0} onPress={() => navigation.navigate('Split')} />}
       overlay={
         <View ref={overlayRef} style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
           {pendingChips
@@ -255,7 +255,7 @@ export function ScheduleScreen() {
       <View style={styles.infoBanner}>
         <InfoIcon />
         <Text style={styles.infoText}>
-          {total} of 8 sessions used. {msg}
+          {total === 0 ? 'Add at least one strength or running day to continue.' : `${total} sessions per week. ${msg}`}
         </Text>
       </View>
     </OnboardingScreen>

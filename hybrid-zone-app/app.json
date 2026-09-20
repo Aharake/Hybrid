@@ -23,12 +23,15 @@
         "backgroundColor": "#000000"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION"
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+        "android.permission.health.READ_HEART_RATE",
+        "android.permission.health.READ_SLEEP"
       ],
       "config": {
         "googleMaps": {
@@ -47,7 +50,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Hyvo needs access to your photos so you can add a background to your run share card."
+          "photosPermission": "Hyvo needs access to your photos so you can set a profile picture and add a background to your run share card.",
+          "cameraPermission": "Hyvo uses your camera so you can take a profile picture.",
+          "microphonePermission": false
         }
       ],
       [
@@ -76,7 +81,24 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
-      ]
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Hyvo reads your steps, active energy, sleep and heart rate from Apple Health so your overview shows real numbers alongside your workouts and runs. Hyvo never writes to your health data.",
+          "NSHealthUpdateUsageDescription": false,
+          "background": false
+        }
+      ],
+      "react-native-health-connect"
     ],
     "extra": {
       "eas": {

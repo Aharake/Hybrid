@@ -7,11 +7,11 @@ import { CalendarWeekWidget } from '@/components/tracker/CalendarWeekWidget';
 import { MetricTile } from '@/components/tracker/MetricTile';
 import { SessionTimelineCard } from '@/components/tracker/SessionTimelineCard';
 import { TrackerTabBar } from '@/components/tracker/TrackerTabBar';
-import { NewSessionSheet } from '@/components/tracker/NewSessionSheet';
 import { AddSetSheet } from '@/components/tracker/AddSetSheet';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
 import { DAY_FULL_MAP } from '@/engine/calendar';
 import { useTrackerStore, OVERVIEW_METRICS, SessionKey } from '@/store/trackerStore';
+import { useMetrics } from '@/hooks/useStats';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function StrengthTab() {
@@ -24,6 +24,7 @@ export function StrengthTab() {
   const viewExercises = viewSessionKey ? sessions[viewSessionKey].exercises : [];
   const doneCount = viewExercises.filter((ex) => (sets[ex.id] || []).length > 0).length;
 
+  const metrics = useMetrics();
   const strengthMetrics = OVERVIEW_METRICS.strength.filter((m) => enabled.strength[m.id]);
 
   const openSession = (key: SessionKey) => {
@@ -50,9 +51,11 @@ export function StrengthTab() {
             </Text>
           </View>
           <View style={styles.statRow}>
-            {strengthMetrics.map((m) => (
-              <MetricTile key={m.id} variant="strength" label={m.label} value={m.id === 'done' ? `${doneCount}/${viewExercises.length}` : m.value} />
-            ))}
+            {strengthMetrics.map((m) => {
+              const r = metrics.strength[m.id];
+              const value = m.id === 'done' ? `${doneCount}/${viewExercises.length}` : `${r.value}${r.unit ? ` ${r.unit}` : ''}`;
+              return <MetricTile key={m.id} variant="strength" label={r.label ?? m.label} value={value} />;
+            })}
           </View>
         </View>
 
@@ -103,7 +106,6 @@ export function StrengthTab() {
         </View>
       </ScrollView>
       <TrackerTabBar active="StrengthTab" />
-      <NewSessionSheet />
       <AddSetSheet />
     </SafeAreaView>
   );

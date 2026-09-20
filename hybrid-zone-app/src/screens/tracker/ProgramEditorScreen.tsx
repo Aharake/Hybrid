@@ -35,6 +35,10 @@ export function ProgramEditorScreen() {
   const template = isCustom ? null : SPLIT_TEMPLATES[programEdit.splitKey];
   const sessionNames = isCustom ? Object.keys(programEdit.customSessions) : Object.keys(template!.sessions);
   const allAssignedDays = Object.values(programEdit.dayAssignments);
+  // Sessions without a day are dropped on save, so at least one needs a day —
+  // otherwise saving would leave the user with an empty program.
+  const canSave = sessionNames.some((n) => programEdit.dayAssignments[n]);
+  const droppedCount = sessionNames.filter((n) => !programEdit.dayAssignments[n]).length;
 
   const handleClose = () => {
     closeProgramEditor();
@@ -55,7 +59,7 @@ export function ProgramEditorScreen() {
         <View style={{ width: 34 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <View>
           <Text style={[typography.sectionTitle, { marginBottom: 4 }]}>Choose Your Split</Text>
           <Text style={styles.hint}>The app rebuilds your schedule and sessions to match</Text>
@@ -194,7 +198,9 @@ export function ProgramEditorScreen() {
           </View>
         </View>
 
-        <Pressable style={[styles.saveBtn, sessionNames.length === 0 && styles.saveBtnDisabled]} disabled={sessionNames.length === 0} onPress={handleSave}>
+        {!canSave && sessionNames.length > 0 && <Text style={styles.hint}>Assign at least one session to a day to save.</Text>}
+        {canSave && droppedCount > 0 && <Text style={styles.hint}>{droppedCount} session{droppedCount === 1 ? '' : 's'} without a day won't be saved.</Text>}
+        <Pressable style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]} disabled={!canSave} onPress={handleSave}>
           <Text style={styles.saveBtnText}>Save Program</Text>
         </Pressable>
       </ScrollView>

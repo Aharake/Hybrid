@@ -10,10 +10,11 @@ export function SwapExerciseSheet() {
   const { swapContext, closeSwapExercise, sessions, performSwap } = useTrackerStore();
   if (!swapContext) return null;
 
-  const ex = sessions[swapContext.sessionKey].exercises.find((e) => e.id === swapContext.exId);
+  const ex = sessions[swapContext.sessionKey]?.exercises.find((e) => e.id === swapContext.exId);
   if (!ex) return null;
 
-  const options = (ex.group === 'Custom' ? [] : EXERCISE_POOL[ex.group]).filter((n) => n !== ex.name);
+  // A custom-named exercise has no muscle group, so offer the whole library.
+  const options = (ex.group === 'Custom' ? Object.values(EXERCISE_POOL).flat() : EXERCISE_POOL[ex.group]).filter((n) => n !== ex.name);
 
   return (
     <Sheet
@@ -26,7 +27,7 @@ export function SwapExerciseSheet() {
         </View>
       }
     >
-      <Text style={styles.sub}>Same muscle group ({ex.group}) — pick a replacement.</Text>
+      <Text style={styles.sub}>{ex.group === 'Custom' ? 'Pick a replacement from the exercise library.' : `Same muscle group (${ex.group}) — pick a replacement.`}</Text>
       <View style={{ gap: 8 }}>
         {options.map((name) => (
           <Pressable key={name} style={styles.option} onPress={() => performSwap(name)}>

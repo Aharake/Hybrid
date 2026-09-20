@@ -1,29 +1,43 @@
-// Tracker app state (new design) — mirrors the source's `S` object plus its
-// module-level mock data (SESSIONS/EXERCISE_POOL/OVERVIEW_METRICS/etc). Unlike the
-// old design, SESSIONS' exercises are genuinely mutable at runtime (swap/add/delete),
-// so they live in store state rather than as plain exported constants.
+// Tracker store — all the tracker screens' state and actions. Everything the
+// app shows about the user's history (activities, stats, records) is derived
+// from `workoutLogs` and `cardio`, which come from the account (see
+// hydrateFromBackend) — there is no built-in sample data.
 
 import { create } from 'zustand';
 import type { DayLabel } from '@/engine/calendar';
-import { TODAY_DAY_SHORT, DAY_LABELS, DAY_FULL_MAP, FULL_TO_DAY_LABEL, isViewingToday as calendarIsViewingToday } from '@/engine/calendar';
-import { saveWorkoutLog, getWorkoutLogs } from '@/api/workoutLogs';
-import { seededRandom } from '@/engine/exerciseHistory';
+import { getTodayShort, DAY_LABELS, DAY_FULL_MAP, FULL_TO_DAY_LABEL, isViewingToday as calendarIsViewingToday } from '@/engine/calendar';
+import { saveWorkoutLog, getWorkoutLogs, deleteWorkoutLog, type WorkoutLogResponse } from '@/api/workoutLogs';
+import { lastLoggedWeight } from '@/engine/exerciseHistory';
 import { weightStepFor, weightToKg, fmtDistance, distanceToKm, type UnitSystem } from '@/engine/units';
 import { haversineDistanceKm, isPlausibleMovement, RoutePoint } from '@/engine/gps';
 import { startRunTracking, stopRunTracking } from '@/engine/locationTask';
 import { getProgram, saveProgram, type ProgramPayload } from '@/api/program';
-import { getPreferences, savePreferences } from '@/api/preferences';
-import { getRunActivities, saveRunActivity, type RunActivityResponse } from '@/api/runActivities';
+import { getPreferences, savePreferences, type AppSettings } from '@/api/preferences';
+import { getRunActivities, saveRunActivity, deleteRunActivity, type RunActivityResponse } from '@/api/runActivities';
 import { saveCustomExercise } from '@/api/customExercises';
+import { EXERCISE_POOL, MuscleGroupKey, deriveMuscleGroups } from '@/engine/exerciseLibrary';
+import {
+  ActivityItem,
+  ActivityType,
+  CardioRecord,
+  RunSessionPlan,
+  Session,
+  SessionExercise,
+  SessionKey,
+  WorkoutLogRecord,
+} from '@/engine/records';
+import { StatsInput, computeDataHighlights } from '@/engine/stats';
+import { activityDaysAgo } from '@/engine/records';
+import { buildRunPlans } from '@/engine/programBuilder';
+import { useHealthStore } from '@/store/healthStore';
+
+export { EXERCISE_POOL };
+export type { ActivityItem, ActivityType, MuscleGroupKey, RunSessionPlan, Session, SessionExercise, SessionKey, CardioRecord, WorkoutLogRecord };
+export type { BadgeItem } from '@/engine/achievements';
 
 /* ---------------- TYPES ---------------- */
 
-// Widened from a 4-way union to allow custom-named workouts (see
-// createCustomSession) to live alongside the 4 built-in preset days.
-export type SessionKey = string;
 export type PresetSessionKey = 'Push' | 'Pull' | 'Legs' | 'Upper';
-export type MuscleGroupKey = 'Chest' | 'Back' | 'Shoulders' | 'Arms' | 'Legs';
-export type ActivityType = 'strength' | 'running' | 'cycling' | 'swimming' | 'walking' | 'other';
 export type MetricContext = 'home' | 'strength' | 'running';
 export type RunStatus = 'idle' | 'countdown' | 'running' | 'paused';
 export type RunType = 'open' | 'distance' | 'interval';
@@ -34,59 +48,13 @@ export interface SetEntry {
   reps: number;
 }
 
-export interface SessionExercise {
-  id: string;
-  name: string;
-  group: MuscleGroupKey | 'Custom'; // exercises added via the "Add ..." free-text row get group 'Custom'
-  sets: number;
-  previous: number | null;
-}
-
-export interface Session {
-  day: string;
-  duration: number;
-  muscleGroups: { name: MuscleGroupKey; current: number; max: number }[];
-  exercises: SessionExercise[];
-}
-
+// A tile's definition — its numbers are computed live (engine/stats.ts), so
+// nothing here carries a value.
 export interface OverviewMetric {
   id: string;
   label: string;
-  value: string | null;
-  unit: string;
   icon: string;
   big?: boolean;
-  bars?: number[];
-}
-
-export interface ActivityItem {
-  type: ActivityType;
-  title: string;
-  meta: string;
-  time: string;
-  daysAgo: number;
-  runStats?: {
-    distance: number;
-    duration: number;
-    calories: number;
-    avgSpeed: number;
-    maxSpeed: number;
-    avgHR?: number; // no wearable integration yet — real GPS runs (finishRun) omit these
-    maxHR?: number;
-    route?: RoutePoint[]; // present only for runs actually recorded via GPS
-  };
-  strengthStats?: { duration: number; exercises: { name: string; sets: { weight: number; reps: number }[] }[] };
-  otherStats?: { duration: number; distance: number | null };
-}
-
-export interface RunSessionPlan {
-  type: string;
-  duration: number;
-  distance: number;
-  pace: string;
-  zoneTag: string;
-  zoneDetail: string;
-  effort: string;
 }
 
 export interface ProgramEditState {
@@ -103,16 +71,16 @@ function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-function deriveMuscleGroups(exercises: SessionExercise[]): { name: MuscleGroupKey; current: number; max: number }[] {
-  const groupCounts: Record<string, number> = {};
-  exercises.forEach((ex) => {
-    groupCounts[ex.group] = (groupCounts[ex.group] || 0) + 1;
-  });
-  return Object.keys(groupCounts).map((g) => ({
-    name: g as MuscleGroupKey,
-    current: groupCounts[g],
-    max: g === 'Legs' ? 20 : 18,
-  }));
+// Writes to the program are held back until the account's program has been
+// loaded at least once (or the user has just built one) — otherwise a failed
+// initial load followed by any edit would overwrite their real program on the
+// server with an empty one.
+let programSyncEnabled = false;
+export function enableProgramSync(): void {
+  programSyncEnabled = true;
+}
+export function disableProgramSync(): void {
+  programSyncEnabled = false;
 }
 
 // Fire-and-forget sync of the whole program (backend owns a full-replace PUT
@@ -122,7 +90,9 @@ function persistProgram(
   sessions: Record<SessionKey, Session>,
   runSessions: Partial<Record<DayLabel, RunSessionPlan>>,
   split: string = 'custom',
+  force = false,
 ): void {
+  if (!programSyncEnabled && !force) return;
   const payload: ProgramPayload = {
     split,
     sessions: Object.keys(sessions).map((key) => ({
@@ -136,121 +106,125 @@ function persistProgram(
       return { day, type: rd.type, distance: rd.distance, duration: rd.duration, pace: rd.pace, zoneTag: rd.zoneTag, zoneDetail: rd.zoneDetail, effort: rd.effort };
     }),
   };
-  saveProgram(payload).catch(() => {});
+  saveProgram(payload)
+    .then(() => {
+      programSyncEnabled = true;
+    })
+    .catch(() => {});
 }
 
-function formatDaysAgo(daysAgo: number): string {
-  if (daysAgo <= 0) return 'Just now';
-  if (daysAgo === 1) return 'Yesterday';
-  return `${daysAgo} days ago`;
+// Per-account settings (units, rest timer, run defaults) follow the user to a
+// new device; a failed save just means this device keeps the value locally.
+function persistSettings(settings: AppSettings): void {
+  savePreferences({ settings }).catch(() => {});
 }
 
-function runActivityResponseToActivityItem(r: RunActivityResponse): ActivityItem {
-  const durationMin = Number(r.duration) || 0;
-  const durationHours = durationMin / 60;
-  const avgSpeed = durationHours > 0 ? r.distance / durationHours : 0;
-  const maxSpeed = (r.route ?? []).reduce((max, point, i, route) => {
-    if (i === 0) return max;
-    const prev = route[i - 1];
-    const dtHours = (point.timestamp - prev.timestamp) / 1000 / 3600;
-    if (dtHours <= 0) return max;
-    const segKmh = haversineDistanceKm(prev, point) / dtHours;
-    return Math.max(max, segKmh);
-  }, avgSpeed);
-  const daysAgo = r.date ? Math.max(0, Math.floor((Date.now() - new Date(r.date).getTime()) / 86400000)) : 0;
+/* ---------------- activities, built from the account's real records ---------------- */
+
+const ACTIVITY_TYPES: ActivityType[] = ['strength', 'running', 'cycling', 'swimming', 'walking', 'other'];
+
+function normalizeActivityType(raw: string): ActivityType {
+  return (ACTIVITY_TYPES as string[]).includes(raw) ? (raw as ActivityType) : 'other';
+}
+
+const DEFAULT_ACTIVITY_TITLE: Record<ActivityType, string> = {
+  strength: 'Strength Workout',
+  running: 'Outdoor Run',
+  cycling: 'Cycling Session',
+  swimming: 'Swim Session',
+  walking: 'Walk',
+  other: 'Activity',
+};
+
+function cardioFromResponse(r: RunActivityResponse): CardioRecord {
+  const type = normalizeActivityType(r.type);
   return {
-    type: 'running',
-    title: 'Outdoor Run',
-    meta: `Running · ${r.distance.toFixed(1)} km`,
-    time: formatDaysAgo(daysAgo),
-    daysAgo,
-    runStats: {
-      distance: r.distance,
-      duration: durationMin,
-      calories: Math.round(r.distance * 65),
-      avgSpeed,
-      maxSpeed,
-      route: r.route ?? undefined,
+    id: r.id,
+    type,
+    title: r.title?.trim() || DEFAULT_ACTIVITY_TITLE[type],
+    date: new Date(r.date ?? Date.now()).getTime(),
+    distanceKm: r.distance,
+    durationMin: Number(r.duration) || 0,
+    route: r.route ?? undefined,
+  };
+}
+
+function workoutLogFromResponse(r: WorkoutLogResponse): WorkoutLogRecord {
+  return {
+    id: r.id,
+    sessionKey: r.sessionKey,
+    date: new Date(r.date).getTime(),
+    durationSec: r.durationSec ?? null,
+    sets: r.loggedSets.map((s) => ({ exerciseName: s.exerciseName, reps: s.reps, weight: s.weight })),
+  };
+}
+
+function activityFromCardio(c: CardioRecord): ActivityItem {
+  if (c.type === 'running') {
+    const avgSpeed = c.durationMin > 0 ? c.distanceKm / (c.durationMin / 60) : 0;
+    const maxSpeed = (c.route ?? []).reduce((max, point, i, route) => {
+      if (i === 0) return max;
+      const prev = route[i - 1];
+      const dtHours = (point.timestamp - prev.timestamp) / 1000 / 3600;
+      if (dtHours <= 0) return max;
+      return Math.max(max, haversineDistanceKm(prev, point) / dtHours);
+    }, avgSpeed);
+    return {
+      type: 'running',
+      title: c.title,
+      date: c.date,
+      runStats: {
+        distance: c.distanceKm,
+        duration: c.durationMin,
+        // Estimate (~65 kcal per km) — there's no weight/heart-rate input to do better.
+        calories: Math.round(c.distanceKm * 65),
+        avgSpeed,
+        maxSpeed,
+        route: c.route,
+      },
+    };
+  }
+  return { type: c.type, title: c.title, date: c.date, otherStats: { duration: Math.round(c.durationMin), distance: c.distanceKm > 0 ? c.distanceKm : null } };
+}
+
+function activityFromLog(log: WorkoutLogRecord): ActivityItem {
+  const byExercise = new Map<string, { weight: number; reps: number }[]>();
+  log.sets.forEach((s) => {
+    const list = byExercise.get(s.exerciseName) ?? [];
+    list.push({ weight: s.weight, reps: s.reps });
+    byExercise.set(s.exerciseName, list);
+  });
+  return {
+    type: 'strength',
+    title: `${log.sessionKey} Workout`,
+    date: log.date,
+    strengthStats: {
+      duration: log.durationSec != null ? Math.max(1, Math.round(log.durationSec / 60)) : null,
+      exercises: [...byExercise.entries()].map(([name, sets]) => ({ name, sets })),
     },
   };
 }
 
-export const EXERCISE_POOL: Record<MuscleGroupKey, string[]> = {
-  Chest: ['Incline DB Press', 'Barbell Bench Press', 'Pec Deck Fly'],
-  Back: ['Lat Pulldown', 'T-Bar Row', 'Barbell Row', 'Deadlift', 'Seated Cable Row', 'Single-Arm DB Row'],
-  Shoulders: ['Lateral Raises', 'Shoulder Press', 'Barbell Overhead Press'],
-  Arms: ['Preacher Curl', 'DB Curl', 'Cable Hammer Curl', 'DB Hammer Curl', 'Dips', 'Cable Tricep Pushdown', 'Overhead Tricep Extension', 'Skull Crushers'],
-  Legs: ['RDL', 'Barbell Back Squat', 'Leg Press', 'Squat', 'Leg Curl', 'Leg Extension', 'Calf Raises'],
-};
+function buildActivities(logs: WorkoutLogRecord[], cardio: CardioRecord[]): ActivityItem[] {
+  return [...logs.map(activityFromLog), ...cardio.map(activityFromCardio)].sort((a, b) => b.date - a.date);
+}
 
-const INITIAL_SESSIONS: Record<PresetSessionKey, Session> = {
-  Push: {
-    day: 'Monday',
-    duration: 60,
-    muscleGroups: [
-      { name: 'Chest', current: 6, max: 18 },
-      { name: 'Shoulders', current: 5, max: 18 },
-      { name: 'Arms', current: 4, max: 18 },
-    ],
-    exercises: [
-      { id: 'ex1', name: 'Incline DB Press', group: 'Chest', sets: 3, previous: 32 },
-      { id: 'ex2', name: 'Shoulder Press', group: 'Shoulders', sets: 3, previous: 20 },
-      { id: 'ex3', name: 'Pec Deck Fly', group: 'Chest', sets: 3, previous: 25 },
-      { id: 'ex4', name: 'Lateral Raises', group: 'Shoulders', sets: 3, previous: 10 },
-      { id: 'ex5', name: 'Dips', group: 'Arms', sets: 3, previous: 10 },
-    ],
-  },
-  Pull: {
-    day: 'Wednesday',
-    duration: 55,
-    muscleGroups: [
-      { name: 'Back', current: 5, max: 18 },
-      { name: 'Arms', current: 4, max: 18 },
-    ],
-    exercises: [
-      { id: 'pull1', name: 'Lat Pulldown', group: 'Back', sets: 3, previous: 55 },
-      { id: 'pull2', name: 'T-Bar Row', group: 'Back', sets: 3, previous: 45 },
-      { id: 'pull3', name: 'Seated Cable Row', group: 'Back', sets: 3, previous: 40 },
-      { id: 'pull4', name: 'Preacher Curl', group: 'Arms', sets: 3, previous: 15 },
-      { id: 'pull5', name: 'Cable Hammer Curl', group: 'Arms', sets: 3, previous: 12 },
-    ],
-  },
-  Legs: {
-    day: 'Thursday',
-    duration: 55,
-    muscleGroups: [{ name: 'Legs', current: 8, max: 20 }],
-    exercises: [
-      { id: 'legs1', name: 'RDL', group: 'Legs', sets: 3, previous: 60 },
-      { id: 'legs2', name: 'Leg Press', group: 'Legs', sets: 3, previous: 100 },
-      { id: 'legs3', name: 'Leg Curl', group: 'Legs', sets: 3, previous: 35 },
-      { id: 'legs4', name: 'Leg Extension', group: 'Legs', sets: 3, previous: 40 },
-      { id: 'legs5', name: 'Calf Raises', group: 'Legs', sets: 3, previous: 50 },
-    ],
-  },
-  Upper: {
-    day: 'Saturday',
-    duration: 65,
-    muscleGroups: [
-      { name: 'Chest', current: 5, max: 18 },
-      { name: 'Back', current: 6, max: 18 },
-      { name: 'Shoulders', current: 4, max: 18 },
-      { name: 'Arms', current: 3, max: 18 },
-    ],
-    exercises: [
-      { id: 'upper1', name: 'Incline DB Press', group: 'Chest', sets: 3, previous: 30 },
-      { id: 'upper2', name: 'Lat Pulldown', group: 'Back', sets: 3, previous: 50 },
-      { id: 'upper3', name: 'Shoulder Press', group: 'Shoulders', sets: 3, previous: 18 },
-      { id: 'upper4', name: 'Seated Cable Row', group: 'Back', sets: 3, previous: 40 },
-      { id: 'upper5', name: 'Lateral Raises', group: 'Shoulders', sets: 3, previous: 8 },
-      { id: 'upper6', name: 'Preacher Curl', group: 'Arms', sets: 3, previous: 12 },
-      { id: 'upper7', name: 'Dips', group: 'Arms', sets: 3, previous: 8 },
-    ],
-  },
-};
+// Sessions' "previous" weight = what the user last lifted for that exercise.
+function withPreviousWeights(sessions: Record<SessionKey, Session>, logs: WorkoutLogRecord[]): Record<SessionKey, Session> {
+  const next: Record<SessionKey, Session> = {};
+  Object.keys(sessions).forEach((key) => {
+    next[key] = { ...sessions[key], exercises: sessions[key].exercises.map((ex) => ({ ...ex, previous: lastLoggedWeight(ex.name, logs) ?? ex.previous })) };
+  });
+  return next;
+}
 
 export interface SplitTemplate {
   name: string;
   sessions: Record<string, Omit<Session, 'day'>>;
+}
+
+function tmpl(duration: number, exercises: SessionExercise[]): Omit<Session, 'day'> {
+  return { duration, muscleGroups: deriveMuscleGroups(exercises), exercises };
 }
 
 function mkEx(id: string, name: string, group: MuscleGroupKey, sets: number): SessionExercise {
@@ -263,10 +237,10 @@ export const SPLIT_TEMPLATES: Record<string, SplitTemplate> = {
   ppl_upper: {
     name: 'Push / Pull / Legs / Upper',
     sessions: {
-      Push: { duration: 60, muscleGroups: INITIAL_SESSIONS.Push.muscleGroups, exercises: INITIAL_SESSIONS.Push.exercises },
-      Pull: { duration: 55, muscleGroups: INITIAL_SESSIONS.Pull.muscleGroups, exercises: INITIAL_SESSIONS.Pull.exercises },
-      Legs: { duration: 55, muscleGroups: INITIAL_SESSIONS.Legs.muscleGroups, exercises: INITIAL_SESSIONS.Legs.exercises },
-      Upper: { duration: 65, muscleGroups: INITIAL_SESSIONS.Upper.muscleGroups, exercises: INITIAL_SESSIONS.Upper.exercises },
+      Push: tmpl(60, [mkEx('pplP1', 'Incline DB Press', 'Chest', 3), mkEx('pplP2', 'Shoulder Press', 'Shoulders', 3), mkEx('pplP3', 'Pec Deck Fly', 'Chest', 3), mkEx('pplP4', 'Lateral Raises', 'Shoulders', 3), mkEx('pplP5', 'Dips', 'Arms', 3)]),
+      Pull: tmpl(55, [mkEx('pplL1', 'Lat Pulldown', 'Back', 3), mkEx('pplL2', 'T-Bar Row', 'Back', 3), mkEx('pplL3', 'Seated Cable Row', 'Back', 3), mkEx('pplL4', 'Preacher Curl', 'Arms', 3), mkEx('pplL5', 'Cable Hammer Curl', 'Arms', 3)]),
+      Legs: tmpl(55, [mkEx('pplG1', 'RDL', 'Legs', 3), mkEx('pplG2', 'Leg Press', 'Legs', 3), mkEx('pplG3', 'Leg Curl', 'Legs', 3), mkEx('pplG4', 'Leg Extension', 'Legs', 3), mkEx('pplG5', 'Calf Raises', 'Legs', 3)]),
+      Upper: tmpl(65, [mkEx('pplU1', 'Incline DB Press', 'Chest', 3), mkEx('pplU2', 'Lat Pulldown', 'Back', 3), mkEx('pplU3', 'Shoulder Press', 'Shoulders', 3), mkEx('pplU4', 'Seated Cable Row', 'Back', 3), mkEx('pplU5', 'Lateral Raises', 'Shoulders', 3), mkEx('pplU6', 'Preacher Curl', 'Arms', 3), mkEx('pplU7', 'Dips', 'Arms', 3)]),
     },
   },
   upper_lower: {
@@ -318,37 +292,37 @@ export const SPLIT_TEMPLATES: Record<string, SplitTemplate> = {
 
 export const OVERVIEW_METRICS: Record<MetricContext, OverviewMetric[]> = {
   home: [
-    { id: 'burn', label: 'Burn', value: '640', unit: 'kcal', icon: 'burn' },
-    { id: 'active', label: 'Active', value: '124', unit: 'min', icon: 'active' },
-    { id: 'done', label: 'Done', value: '3', unit: '/5', icon: 'done' },
-    { id: 'heartrate', label: 'Heart Rate', value: null, unit: '', icon: 'heartrate', big: true, bars: [30, 55, 40, 70, 50, 65, 45] },
-    { id: 'trend', label: 'Weekly Trend', value: null, unit: '', icon: 'trend', big: true, bars: [20, 35, 25, 60, 45, 75, 55] },
-    { id: 'steps', label: 'Steps', value: '8,421', unit: '', icon: 'stepsIco' },
-    { id: 'sleep', label: 'Sleep', value: '7h 12m', unit: '', icon: 'sleep' },
-    { id: 'workouts_month', label: 'Workouts', value: '18', unit: 'this mo', icon: 'done' },
-    { id: 'longest_streak', label: 'Longest Streak', value: '12', unit: 'days', icon: 'flameIco' },
-    { id: 'active_days', label: 'Active Days', value: '5', unit: '/7', icon: 'active' },
+    { id: 'burn', label: 'Burn', icon: 'burn' },
+    { id: 'active', label: 'Active', icon: 'active' },
+    { id: 'done', label: 'Done', icon: 'done' },
+    { id: 'heartrate', label: 'Heart Rate', icon: 'heartrate', big: true },
+    { id: 'trend', label: 'Weekly Trend', icon: 'trend', big: true },
+    { id: 'steps', label: 'Steps', icon: 'stepsIco' },
+    { id: 'sleep', label: 'Sleep', icon: 'sleep' },
+    { id: 'workouts_month', label: 'Workouts', icon: 'done' },
+    { id: 'longest_streak', label: 'Longest Streak', icon: 'flameIco' },
+    { id: 'active_days', label: 'Active Days', icon: 'active' },
   ],
   strength: [
-    { id: 'volume', label: 'Volume', value: '8.2k', unit: 'kg', icon: 'trend' },
-    { id: 'logged', label: 'Logged Workouts', value: '12', unit: '', icon: 'done' },
-    { id: 'done', label: 'Done', value: null, unit: '', icon: 'done' }, // computed live from today's session
-    { id: 'prs', label: 'PRs This Week', value: '3', unit: '', icon: 'trophyIco' },
-    { id: 'total_sets', label: 'Total Sets', value: '42', unit: 'this wk', icon: 'layersIco' },
-    { id: 'avg_duration', label: 'Avg Duration', value: '52', unit: 'min', icon: 'clock' },
-    { id: 'workout_streak', label: 'Workout Streak', value: '6', unit: 'days', icon: 'flameIco' },
-    { id: 'main_lift', label: 'Bench Press', value: '+5', unit: 'kg/mo', icon: 'trendUp' },
-    { id: 'muscle_groups', label: 'Muscle Groups', value: '6', unit: 'this wk', icon: 'layersIco' },
+    { id: 'volume', label: 'Volume', icon: 'trend' },
+    { id: 'logged', label: 'Logged Workouts', icon: 'done' },
+    { id: 'done', label: 'Done', icon: 'done' }, // computed live from the viewed day's session
+    { id: 'prs', label: 'PRs This Week', icon: 'trophyIco' },
+    { id: 'total_sets', label: 'Total Sets', icon: 'layersIco' },
+    { id: 'avg_duration', label: 'Avg Duration', icon: 'clock' },
+    { id: 'workout_streak', label: 'Workout Streak', icon: 'flameIco' },
+    { id: 'main_lift', label: 'Top Lift', icon: 'trendUp' },
+    { id: 'muscle_groups', label: 'Muscle Groups', icon: 'layersIco' },
   ],
   running: [
-    { id: 'steps_today', label: 'Steps Today', value: '8,421', unit: '/10k', icon: 'stepsIco' },
-    { id: 'weekly_dist', label: 'Weekly Dist.', value: '12.4', unit: 'km', icon: 'runIcoSm' },
-    { id: 'avg_pace', label: 'Avg. Pace', value: '5\'12"', unit: '/km', icon: 'paceIco' },
-    { id: 'runs_monthly', label: 'Runs Monthly', value: '8', unit: 'total', icon: 'monthIco' },
-    { id: 'longest_run', label: 'Longest Run', value: '10.1', unit: 'km', icon: 'trendUp' },
-    { id: 'elevation', label: 'Elevation', value: '340', unit: 'm this wk', icon: 'elevation' },
-    { id: 'fastest_5k', label: 'Fastest 5K', value: '24:12', unit: '', icon: 'trophyIco' },
-    { id: 'run_streak', label: 'Run Streak', value: '3', unit: 'days', icon: 'flameIco' },
+    { id: 'steps_today', label: 'Steps Today', icon: 'stepsIco' },
+    { id: 'weekly_dist', label: 'Weekly Dist.', icon: 'runIcoSm' },
+    { id: 'avg_pace', label: 'Avg. Pace', icon: 'paceIco' },
+    { id: 'runs_monthly', label: 'Runs Monthly', icon: 'monthIco' },
+    { id: 'longest_run', label: 'Longest Run', icon: 'trendUp' },
+    { id: 'elevation', label: 'Elevation', icon: 'elevation' },
+    { id: 'fastest_5k', label: 'Fastest 5K', icon: 'trophyIco' },
+    { id: 'run_streak', label: 'Run Streak', icon: 'flameIco' },
   ],
 };
 
@@ -367,105 +341,6 @@ export const ACTIVITY_ICONS: Record<ActivityType, string> = {
   other: 'otherIco',
 };
 
-// Mutable now (Log Activity unshifts a new entry) — read via
-// useTrackerStore(s => s.activities), not this export directly.
-const INITIAL_ACTIVITIES: ActivityItem[] = [
-  {
-    type: 'strength', title: 'Push Day Strength', meta: 'Strength · 45 min', time: '8:15 AM', daysAgo: 0,
-    strengthStats: { duration: 45, exercises: [
-      { name: 'Flat Barbell Bench Press', sets: [{ weight: 84, reps: 8 }, { weight: 84, reps: 8 }, { weight: 82, reps: 7 }, { weight: 80, reps: 7 }] },
-      { name: 'Overhead Barbell Press', sets: [{ weight: 43, reps: 10 }, { weight: 43, reps: 9 }, { weight: 40, reps: 9 }] },
-      { name: 'Incline Dumbbell Fly', sets: [{ weight: 16, reps: 12 }, { weight: 16, reps: 11 }, { weight: 14, reps: 12 }] },
-      { name: 'Tricep Overhead Extension', sets: [{ weight: 18, reps: 12 }, { weight: 18, reps: 11 }, { weight: 16, reps: 12 }, { weight: 16, reps: 10 }] },
-    ] },
-  },
-  {
-    type: 'running', title: 'Outdoor Tempo Run', meta: 'Running · 5.2 km', time: 'Yesterday', daysAgo: 1,
-    runStats: { distance: 5.2, duration: 32, calories: 310, avgSpeed: 9.8, maxSpeed: 14.2, avgHR: 152, maxHR: 171 },
-  },
-  { type: 'cycling', title: 'Morning Ride', meta: 'Cycling · 18.4 km', time: '2 days ago', daysAgo: 2 },
-  { type: 'swimming', title: 'Pool Laps', meta: 'Swimming · 1,200 m', time: '4 days ago', daysAgo: 4 },
-  { type: 'walking', title: 'Evening Walk', meta: 'Walking · 3.1 km', time: '5 days ago', daysAgo: 5 },
-  {
-    type: 'strength', title: 'Pull Day Strength', meta: 'Strength · 50 min', time: '6 days ago', daysAgo: 6,
-    strengthStats: { duration: 50, exercises: [
-      { name: 'Lat Pulldown', sets: [{ weight: 58, reps: 10 }, { weight: 58, reps: 9 }, { weight: 54, reps: 10 }] },
-      { name: 'Barbell Row', sets: [{ weight: 66, reps: 8 }, { weight: 66, reps: 8 }, { weight: 62, reps: 8 }] },
-      { name: 'Seated Cable Row', sets: [{ weight: 50, reps: 10 }, { weight: 50, reps: 10 }, { weight: 46, reps: 11 }] },
-      { name: 'Preacher Curl', sets: [{ weight: 20, reps: 11 }, { weight: 20, reps: 10 }, { weight: 18, reps: 11 }] },
-    ] },
-  },
-  {
-    type: 'running', title: 'Long Run', meta: 'Running · 10.1 km', time: '9 days ago', daysAgo: 9,
-    runStats: { distance: 10.1, duration: 58, calories: 612, avgSpeed: 10.4, maxSpeed: 15.1, avgHR: 148, maxHR: 168 },
-  },
-  { type: 'other', title: 'Yoga Session', meta: 'Other · 30 min', time: '12 days ago', daysAgo: 12 },
-  { type: 'cycling', title: 'Hill Repeats', meta: 'Cycling · 22.0 km', time: '20 days ago', daysAgo: 20 },
-  {
-    type: 'strength', title: 'Legs Strength', meta: 'Strength · 55 min', time: '35 days ago', daysAgo: 35,
-    strengthStats: { duration: 55, exercises: [
-      { name: 'RDL', sets: [{ weight: 70, reps: 8 }, { weight: 70, reps: 8 }, { weight: 66, reps: 9 }] },
-      { name: 'Leg Press', sets: [{ weight: 120, reps: 10 }, { weight: 120, reps: 10 }, { weight: 110, reps: 11 }] },
-      { name: 'Leg Curl', sets: [{ weight: 40, reps: 12 }, { weight: 40, reps: 11 }, { weight: 36, reps: 12 }] },
-      { name: 'Leg Extension', sets: [{ weight: 45, reps: 12 }, { weight: 45, reps: 12 }, { weight: 42, reps: 12 }] },
-      { name: 'Calf Raises', sets: [{ weight: 60, reps: 15 }, { weight: 60, reps: 15 }, { weight: 60, reps: 14 }] },
-    ] },
-  },
-  { type: 'swimming', title: 'Open Water Swim', meta: 'Swimming · 1,800 m', time: '50 days ago', daysAgo: 50 },
-  { type: 'walking', title: 'Weekend Hike', meta: 'Walking · 8.4 km', time: '100 days ago', daysAgo: 100 },
-];
-
-// Matches the Runs Logged stat shown elsewhere on Account.
-const RUNS_LOGGED_TOTAL = 52;
-
-export interface BadgeItem {
-  id: string;
-  label: string;
-  name: string;
-  sub?: string | null; // time (PRs) or date (Firsts) shown under the name
-  earned: boolean;
-  tier: 'solid' | 'outline' | 'locked';
-}
-
-// Three badge families sharing one shape language: activity milestones are
-// hexes that gain visual weight as they climb (outline -> solid once past
-// 50 -> locked/dashed until reached); personal records use the same hex
-// shape; firsts are discs, earned once, dated.
-export const ACTIVITY_MILESTONES: BadgeItem[] = [1, 5, 10, 20, 30, 50, 75, 100, 150, 200].map((n) => ({
-  id: 'run' + n,
-  label: String(n),
-  name: `${n} Run${n === 1 ? '' : 's'}`,
-  earned: n <= RUNS_LOGGED_TOTAL,
-  tier: n <= RUNS_LOGGED_TOTAL && n >= 50 ? 'solid' : n <= RUNS_LOGGED_TOTAL ? 'outline' : 'locked',
-}));
-
-export const PERSONAL_RECORDS: BadgeItem[] = [
-  { id: 'pr1mi', label: '1MI', name: 'Fastest Mile', sub: '6:48' },
-  { id: 'pr3k', label: '3K', name: 'Fastest 3K', sub: '12:30' },
-  { id: 'pr3mi', label: '3MI', name: 'Fastest 3 Mile', sub: '21:40' },
-  { id: 'pr5k', label: '5K', name: 'Fastest 5K', sub: '22:14' },
-  { id: 'pr10k', label: '10K', name: 'Fastest 10K', sub: '47:05' },
-  { id: 'pr15k', label: '15K', name: 'Fastest 15K', sub: '1:14:20' },
-  { id: 'pr20k', label: '20K', name: 'Fastest 20K', sub: '1:41:38' },
-  { id: 'prhalf', label: 'HALF', name: 'Fastest Half', sub: '1:48:52' },
-].map((p) => ({ ...p, earned: true, tier: 'outline' as const }));
-
-export const FIRSTS: BadgeItem[] = [
-  { id: 'f_run', label: 'RUN', name: 'First Run', sub: 'Mar 2026', earned: true },
-  { id: 'f_1mi', label: '1MI', name: 'First Mile', sub: 'Mar 2026', earned: true },
-  { id: 'f_5k', label: '5K', name: 'First 5K', sub: 'Apr 2026', earned: true },
-  { id: 'f_10k', label: '10K', name: 'First 10K', sub: 'Jun 2026', earned: true },
-  { id: 'f_15k', label: '15K', name: 'First 15K', sub: 'Aug 2026', earned: true },
-  { id: 'f_half', label: 'HALF', name: 'First Half', sub: null, earned: false },
-].map((f) => ({ ...f, tier: f.earned ? ('outline' as const) : ('locked' as const) }));
-
-// Still placeholder — see getDataHighlightsValues.
-const DATA_HIGHLIGHTS_TABLE: Record<'1m' | '3m' | 'all', { consistency: number; load: number }> = {
-  '1m': { consistency: 0.81, load: 1.18 },
-  '3m': { consistency: 0.88, load: 1.29 },
-  all: { consistency: 0.94, load: 1.42 },
-};
-
 export const LOGGABLE_ACTIVITY_TYPES: { id: ActivityType; label: string; defaultTitle: string; hasDistance: boolean }[] = [
   { id: 'cycling', label: 'Cycling', defaultTitle: 'Cycling Session', hasDistance: true },
   { id: 'swimming', label: 'Swimming', defaultTitle: 'Swim Session', hasDistance: true },
@@ -473,39 +348,20 @@ export const LOGGABLE_ACTIVITY_TYPES: { id: ActivityType; label: string; default
   { id: 'other', label: 'Other', defaultTitle: 'Activity', hasDistance: false },
 ];
 
-export const STRENGTH_WORKOUT_OPTIONS = [
-  { name: 'Custom Workout', subtitle: 'Build your own from scratch', isCustom: true },
-  { name: 'Push Day', subtitle: 'Chest, Shoulders, Triceps', isCustom: false },
-  { name: 'Pull Day', subtitle: 'Back, Biceps', isCustom: false },
-  { name: 'Legs Day', subtitle: 'Quads, Hamstrings, Glutes, Calves', isCustom: false },
-  { name: 'Upper Day', subtitle: 'Full upper body', isCustom: false },
-];
-
 export const METRIC_INFO: Record<'goal' | 'consistency' | 'volume', { title: string; body: string }> = {
   goal: {
     title: 'Weekly Goal',
-    body: "The average of your progress across this week's set targets — workouts completed, runs completed, and steps walked — each capped at 100% individually so overachieving one goal can't cover for missing another.",
+    body: "The average of your progress across this week's plan — strength sessions completed, runs completed and, when Apple Health or Health Connect is connected, steps toward 10,000 — each capped at 100% so overachieving one can't cover for missing another.",
   },
   consistency: {
     title: 'Consistency',
-    body: "How many of your scheduled training days you actually completed this week, out of the total scheduled. Rest days you never had planned don't count against you.",
+    body: 'Of the sessions your program schedules this week, how many you completed on the day they were scheduled. A workout done on a different day still counts toward your Weekly Goal, but not toward Consistency.',
   },
   volume: {
     title: 'Volume Trend',
-    body: "This week's total training volume (weight lifted) compared to last week's, so you can see at a glance whether you're trending up or down. Values over 100% mean you've lifted more than last week.",
+    body: "This week's total weight lifted (sets × reps × weight) compared with last week's. Over 100% means you've lifted more than last week; if you didn't train last week it shows 100% once you log a workout.",
   },
 };
-
-// Mutable now (Program Editor's "Run Days" can rewrite this) — kept as an
-// INITIAL_ constant for the store's default state, same pattern as
-// INITIAL_SESSIONS. Consumers read useTrackerStore(s => s.runSessions), not
-// this export directly.
-const INITIAL_RUN_SESSIONS: Partial<Record<DayLabel, RunSessionPlan>> = {
-  Tue: { type: 'Easy Run', duration: 35, distance: 5.0, pace: '6\'10"–6\'40"', zoneTag: 'Zone 2 · Recovery', zoneDetail: 'Zone 2 (aerobic base)', effort: 'Conversational pace' },
-  Sat: { type: 'Interval Run', duration: 40, distance: 6.0, pace: '4\'50"–5\'10" (work intervals)', zoneTag: 'Zone 4 · VO2 Max', zoneDetail: 'Zone 4-5 (high intensity)', effort: '6 x 400m @ 5K pace, 90s jog recovery' },
-};
-
-export const RING_DATA_BASE = { goal: 0.67, consistency: 0.83, volume: 1.12 };
 
 /* ---------------- STORE ---------------- */
 
@@ -549,7 +405,19 @@ interface TrackerStore {
   // from the source: no legacyProgram/cutover snapshot, so past weeks
   // reflect whatever the program is *now*, not what it was historically.
   runSessions: Partial<Record<DayLabel, RunSessionPlan>>;
-  setProgram: (sessions: Record<SessionKey, Session>, runSessions: Partial<Record<DayLabel, RunSessionPlan>>, split?: string) => void;
+  setProgram: (sessions: Record<SessionKey, Session>, runSessions: Partial<Record<DayLabel, RunSessionPlan>>, split?: string, force?: boolean) => void;
+  // The account's saved records — the single source everything else (activities,
+  // stats, records, history) is derived from.
+  workoutLogs: WorkoutLogRecord[];
+  cardio: CardioRecord[];
+  // Records that couldn't be uploaded (offline/server error) — kept here and
+  // retried on the next launch, save or manual refresh so nothing is lost.
+  pendingLogs: { sessionKey: string; sets: { exerciseName: string; reps: number; weight: number }[]; durationSec: number; date: number; localId: string }[];
+  pendingCardio: (CardioRecord & { title: string })[];
+  retryUnsynced: () => Promise<void>;
+  // Everything the stats engine needs, in one object.
+  getStatsInput: () => StatsInput;
+  deleteActivity: (index: number) => Promise<boolean>;
   // Pulls Program/Preferences/Run history from the account after sign-in so
   // a returning user (or a reinstall) sees their real data, not fresh defaults.
   hydrateFromBackend: () => Promise<void>;
@@ -576,13 +444,8 @@ interface TrackerStore {
   dataHighlightsRange: '1m' | '3m' | 'all';
   selectActivitySummaryRange: (range: '1m' | '3m' | 'all') => void;
   selectDataHighlightsRange: (range: '1m' | '3m' | 'all') => void;
-  // Dates (ISO) of real logged strength workouts, hydrated from the backend —
-  // `activities` still has no real strength entries (see finishWorkout), so
-  // Activity Summary counts real workouts from here instead.
-  workoutLogDates: string[];
   getActivitySummaryValues: () => { workouts: number; runs: number };
-  // NOTE: Consistency/Load are still placeholder — a real formula needs a
-  // product decision on what "consistent" and "load" mean before it's wired.
+  // Best weekly consistency and peak training load inside the selected range.
   getDataHighlightsValues: () => { consistency: number; load: number };
 
   // Account settings pickers.
@@ -671,7 +534,7 @@ interface TrackerStore {
   customExerciseCounter: number;
 
   // live workout + rest timer
-  workout: { active: boolean; seconds: number };
+  workout: { active: boolean; seconds: number; startedAt: number | null };
   workoutSnapshotCounts: Record<string, number> | null;
   startWorkout: () => void;
   tickWorkout: () => void;
@@ -712,6 +575,9 @@ interface TrackerStore {
   // run tracker
   runTrackerOpen: boolean;
   runStatus: RunStatus;
+  // Set when location permission was refused at the start of a run, so the
+  // overlay can tell the user why no distance is being recorded.
+  gpsIssue: 'denied' | null;
   countdownVal: number;
   run: { elapsed: number; distance: number; intervalCount: number; route: RoutePoint[]; maxSpeedKmh: number };
   runSetupOpen: boolean;
@@ -756,19 +622,22 @@ const RUN_DEFAULT = { elapsed: 0, distance: 0, intervalCount: 0, route: [] as Ro
 export const useTrackerStore = create<TrackerStore>((set, get) => ({
   unitSystem: 'metric',
   unitPickerOpen: false,
-  setUnitSystem: (sys) => set({ unitSystem: sys, unitPickerOpen: false }),
+  setUnitSystem: (sys) => {
+    set({ unitSystem: sys, unitPickerOpen: false });
+    persistSettings({ unitSystem: sys });
+  },
   openUnitPicker: () => set({ unitPickerOpen: true }),
   closeUnitPicker: () => set({ unitPickerOpen: false }),
 
   viewWeekOffset: 0,
-  viewDay: TODAY_DAY_SHORT,
+  viewDay: getTodayShort(),
   selectDay: (weekOffset, label) => set({ viewWeekOffset: weekOffset, viewDay: label }),
   shiftWeek: (delta) => set((s) => ({ viewWeekOffset: s.viewWeekOffset + delta })),
-  resetToToday: () => set({ viewWeekOffset: 0, viewDay: TODAY_DAY_SHORT }),
+  resetToToday: () => set({ viewWeekOffset: 0, viewDay: getTodayShort() }),
   isViewingToday: () => calendarIsViewingToday(get().viewWeekOffset, get().viewDay),
 
-  sessions: INITIAL_SESSIONS,
-  activeSessionKey: 'Push',
+  sessions: {},
+  activeSessionKey: '',
   setActiveSessionKey: (key) => set({ activeSessionKey: key }),
   createCustomSession: (name, exercises) => {
     const key = name.trim() || 'Custom Workout';
@@ -793,17 +662,21 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     return uniqueKey;
   },
 
-  runSessions: INITIAL_RUN_SESSIONS,
-  setProgram: (sessions, runSessions, split) => {
-    persistProgram(sessions, runSessions, split);
+  runSessions: {},
+  setProgram: (sessions, runSessions, split, force) => {
+    persistProgram(sessions, runSessions, split, force);
     set({
       sessions,
       runSessions,
       activeSessionKey: Object.keys(sessions)[0] || '',
       viewWeekOffset: 0,
-      viewDay: TODAY_DAY_SHORT,
+      viewDay: getTodayShort(),
     });
   },
+  workoutLogs: [],
+  cardio: [],
+  pendingLogs: [],
+  pendingCardio: [],
   hydrateFromBackend: async () => {
     const [programRes, prefsRes, runActivitiesRes, workoutLogsRes] = await Promise.allSettled([
       getProgram(),
@@ -812,53 +685,138 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       getWorkoutLogs(),
     ]);
 
-    if (programRes.status === 'fulfilled' && programRes.value && programRes.value.sessions.length > 0) {
+    // Records first, so the program below can show real "previous" weights.
+    if (workoutLogsRes.status === 'fulfilled') set({ workoutLogs: workoutLogsRes.value.map(workoutLogFromResponse) });
+    if (runActivitiesRes.status === 'fulfilled') set({ cardio: runActivitiesRes.value.map(cardioFromResponse) });
+    set((s) => ({ activities: buildActivities(s.workoutLogs, s.cardio) }));
+
+    if (programRes.status === 'fulfilled') {
+      // The account answered (with a program or with "none yet"), so it's safe
+      // to write program edits back from now on.
+      enableProgramSync();
       const p = programRes.value;
-      const sessions: Record<SessionKey, Session> = {};
-      p.sessions.forEach((s) => {
-        const exercises: SessionExercise[] = s.exercises.map((ex) => ({
-          id: ex.id,
-          name: ex.name,
-          group: ex.group as MuscleGroupKey | 'Custom',
-          sets: ex.sets,
-          previous: ex.previous ?? null,
+      if (p && p.sessions.length > 0) {
+        const sessions: Record<SessionKey, Session> = {};
+        p.sessions.forEach((sess) => {
+          const exercises: SessionExercise[] = sess.exercises.map((ex) => ({
+            id: ex.id,
+            name: ex.name,
+            group: ex.group as MuscleGroupKey | 'Custom',
+            sets: ex.sets,
+            previous: ex.previous ?? null,
+          }));
+          sessions[sess.key] = { day: sess.day, duration: sess.duration, exercises, muscleGroups: deriveMuscleGroups(exercises) };
+        });
+        const runSessions: Partial<Record<DayLabel, RunSessionPlan>> = {};
+        (p.runDays ?? []).forEach((rd) => {
+          runSessions[rd.day as DayLabel] = {
+            type: rd.type,
+            duration: rd.duration,
+            distance: rd.distance,
+            pace: rd.pace,
+            zoneTag: rd.zoneTag,
+            zoneDetail: rd.zoneDetail,
+            effort: rd.effort,
+          };
+        });
+        set((s) => ({
+          sessions: withPreviousWeights(sessions, s.workoutLogs),
+          runSessions,
+          activeSessionKey: Object.keys(sessions)[0] ?? s.activeSessionKey,
         }));
-        sessions[s.key] = { day: s.day, duration: s.duration, exercises, muscleGroups: deriveMuscleGroups(exercises) };
-      });
-      const runSessions: Partial<Record<DayLabel, RunSessionPlan>> = {};
-      (p.runDays ?? []).forEach((rd) => {
-        runSessions[rd.day as DayLabel] = {
-          type: rd.type,
-          duration: rd.duration,
-          distance: rd.distance,
-          pace: rd.pace,
-          zoneTag: rd.zoneTag,
-          zoneDetail: rd.zoneDetail,
-          effort: rd.effort,
-        };
-      });
-      set({ sessions, runSessions, activeSessionKey: Object.keys(sessions)[0] ?? get().activeSessionKey });
+      }
     }
 
     if (prefsRes.status === 'fulfilled' && prefsRes.value) {
-      const enabledMetrics = prefsRes.value.enabledMetrics as Record<MetricContext, Record<string, boolean>>;
+      const prefs = prefsRes.value;
+      const enabledMetrics = (prefs.enabledMetrics ?? {}) as Partial<Record<MetricContext, Record<string, boolean>>>;
+      const st = prefs.settings;
       set((s) => ({
         enabled: {
           home: { ...s.enabled.home, ...enabledMetrics.home },
           strength: { ...s.enabled.strength, ...enabledMetrics.strength },
           running: { ...s.enabled.running, ...enabledMetrics.running },
         },
+        ...(st?.unitSystem ? { unitSystem: st.unitSystem } : {}),
+        ...(st?.runType ? { runType: st.runType } : {}),
+        ...(st?.distanceGoal ? { distanceGoal: st.distanceGoal, ...(([1, 3, 5, 10, 21, 42] as number[]).includes(st.distanceGoal) ? {} : { distanceCustom: true, customDistanceVal: st.distanceGoal }) } : {}),
+        ...(st?.restDuration
+          ? { restTimer: { ...s.restTimer, duration: st.restDuration, remaining: s.restTimer.status === 'idle' ? st.restDuration : s.restTimer.remaining } }
+          : {}),
       }));
     }
 
-    if (runActivitiesRes.status === 'fulfilled' && runActivitiesRes.value.length > 0) {
-      const runActivities = runActivitiesRes.value.map(runActivityResponseToActivityItem);
-      set((s) => ({ activities: [...runActivities, ...s.activities.filter((a) => a.type !== 'running')] }));
-    }
+    get().retryUnsynced().catch(() => {});
+  },
 
-    if (workoutLogsRes.status === 'fulfilled') {
-      set({ workoutLogDates: workoutLogsRes.value.map((log) => log.date) });
+  retryUnsynced: async () => {
+    const { pendingLogs, pendingCardio } = get();
+    for (const p of pendingLogs) {
+      try {
+        const saved = await saveWorkoutLog(p.sessionKey, p.sets, { durationSec: p.durationSec, date: new Date(p.date).toISOString() });
+        set((s) => {
+          const workoutLogs = s.workoutLogs.map((l) => (l.id === p.localId ? workoutLogFromResponse(saved) : l));
+          return { workoutLogs, activities: buildActivities(workoutLogs, s.cardio), pendingLogs: s.pendingLogs.filter((x) => x.localId !== p.localId) };
+        });
+      } catch {
+        // still offline / failing — stays queued for next time
+      }
     }
+    for (const c of pendingCardio) {
+      try {
+        const saved = await saveRunActivity({ type: c.type, title: c.title, distance: c.distanceKm, duration: String(c.durationMin), date: new Date(c.date).toISOString(), route: c.route ?? null });
+        set((s) => {
+          const cardio = s.cardio.map((x) => (x.id === c.id ? cardioFromResponse(saved) : x));
+          return { cardio, activities: buildActivities(s.workoutLogs, cardio), pendingCardio: s.pendingCardio.filter((x) => x.id !== c.id) };
+        });
+      } catch {
+        // stays queued
+      }
+    }
+  },
+
+  getStatsInput: () => {
+    const s = get();
+    return {
+      now: Date.now(),
+      activities: s.activities,
+      workoutLogs: s.workoutLogs,
+      sessions: s.sessions,
+      runSessions: s.runSessions,
+      health: useHealthStore.getState().snapshot,
+      unitSystem: s.unitSystem,
+    };
+  },
+
+  deleteActivity: async (index) => {
+    const a = get().activities[index];
+    if (!a) return false;
+    const log = a.type === 'strength' ? get().workoutLogs.find((l) => l.date === a.date && `${l.sessionKey} Workout` === a.title) : null;
+    const rec = a.type !== 'strength' ? get().cardio.find((c) => c.date === a.date && c.title === a.title && c.type === a.type) : null;
+    const target = log ?? rec;
+    if (!target) return false;
+    const isLocal = target.id.startsWith('local-');
+    try {
+      if (!isLocal) {
+        if (log) await deleteWorkoutLog(log.id);
+        else if (rec) await deleteRunActivity(rec.id);
+      }
+    } catch {
+      return false;
+    }
+    set((s) => {
+      const workoutLogs = log ? s.workoutLogs.filter((l) => l.id !== log.id) : s.workoutLogs;
+      const cardio = rec ? s.cardio.filter((c) => c.id !== rec.id) : s.cardio;
+      return {
+        workoutLogs,
+        cardio,
+        pendingLogs: s.pendingLogs.filter((p) => p.localId !== target.id),
+        pendingCardio: s.pendingCardio.filter((p) => p.id !== target.id),
+        activities: buildActivities(workoutLogs, cardio),
+        activeActivityIndex: null,
+      };
+    });
+    return true;
   },
 
   programEdit: null,
@@ -987,31 +945,35 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     const sourceSessions = isCustom ? pe.customSessions : SPLIT_TEMPLATES[pe.splitKey]?.sessions;
     if (!sourceSessions) return;
 
+    const existing = get().sessions;
     const newSessions: Record<SessionKey, Session> = {};
     Object.keys(sourceSessions).forEach((sessName) => {
       const dayShort = pe.dayAssignments[sessName];
       if (!dayShort) return;
       if (isCustom) {
         const exercises = (sourceSessions as Record<string, { exercises: SessionExercise[] }>)[sessName].exercises;
-        const muscleGroups = deriveMuscleGroups(exercises);
-        newSessions[sessName] = { duration: Math.max(30, exercises.length * 11), muscleGroups, exercises, day: DAY_FULL_MAP[dayShort] };
+        newSessions[sessName] = { duration: Math.max(30, exercises.length * 11), muscleGroups: deriveMuscleGroups(exercises), exercises, day: DAY_FULL_MAP[dayShort] };
+      } else if (existing[sessName]) {
+        // Same session name as one the user already has — keep their swaps,
+        // additions and deletions; only the day can change.
+        newSessions[sessName] = { ...existing[sessName], day: DAY_FULL_MAP[dayShort] };
       } else {
         const tmpl = (sourceSessions as Record<string, Omit<Session, 'day'>>)[sessName];
         newSessions[sessName] = { ...tmpl, day: DAY_FULL_MAP[dayShort] };
       }
     });
 
-    const runTypeCycle = ['Easy Run', 'Tempo Run', 'Long Run'];
-    const newRunSessions: Partial<Record<DayLabel, RunSessionPlan>> = {};
-    const sortedRunDays = [...pe.runDays].sort((a, b) => DAY_LABELS.indexOf(a) - DAY_LABELS.indexOf(b));
-    sortedRunDays.forEach((d, i) => {
-      const isFinalHardDay = i === sortedRunDays.length - 1 && sortedRunDays.length > 1;
-      newRunSessions[d] = isFinalHardDay
-        ? { type: 'Interval Run', distance: 6, duration: 40, pace: '5\'00"/km', zoneTag: 'Zone 4 · VO2 Max', zoneDetail: 'Zone 4-5', effort: 'Intervals' }
-        : { type: runTypeCycle[i % runTypeCycle.length], distance: 5 + i * 2, duration: 30 + i * 8, pace: '5\'30"/km', zoneTag: 'Zone 2', zoneDetail: 'Zone 2 (aerobic base)', effort: 'Steady' };
+    // Keep run plans for days that stay; build sensible ones only for new run days.
+    const keptRuns: Partial<Record<DayLabel, RunSessionPlan>> = {};
+    const freshDays: DayLabel[] = [];
+    pe.runDays.forEach((d) => {
+      const kept = get().runSessions[d];
+      if (kept) keptRuns[d] = kept;
+      else freshDays.push(d);
     });
+    const newRunSessions = { ...keptRuns, ...buildRunPlans(freshDays, 'fun', 'intermediate') };
 
-    get().setProgram(newSessions, newRunSessions, pe.splitKey);
+    get().setProgram(withPreviousWeights(newSessions, get().workoutLogs), newRunSessions, pe.splitKey, true);
     set({ programEdit: null });
   },
 
@@ -1019,17 +981,13 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   dataHighlightsRange: 'all',
   selectActivitySummaryRange: (range) => set({ activitySummaryRange: range }),
   selectDataHighlightsRange: (range) => set({ dataHighlightsRange: range }),
-  workoutLogDates: [],
   getActivitySummaryValues: () => {
-    const { activitySummaryRange, workoutLogDates, activities } = get();
+    const { activitySummaryRange, activities } = get();
     const cutoffDays = activitySummaryRange === '1m' ? 30 : activitySummaryRange === '3m' ? 90 : Infinity;
-    const now = Date.now();
-    const withinCutoff = (iso: string) => (now - new Date(iso).getTime()) / 86400000 <= cutoffDays;
-    const workouts = workoutLogDates.filter(withinCutoff).length;
-    const runs = activities.filter((a) => a.type === 'running' && a.daysAgo <= cutoffDays).length;
-    return { workouts, runs };
+    const inRange = activities.filter((a) => activityDaysAgo(a) <= cutoffDays);
+    return { workouts: inRange.filter((a) => a.type === 'strength').length, runs: inRange.filter((a) => a.type === 'running').length };
   },
-  getDataHighlightsValues: () => DATA_HIGHLIGHTS_TABLE[get().dataHighlightsRange],
+  getDataHighlightsValues: () => computeDataHighlights(get().getStatsInput(), get().dataHighlightsRange),
 
   runDefaultsPickerOpen: false,
   openRunDefaultsPicker: () => set({ runDefaultsPickerOpen: true }),
@@ -1042,20 +1000,22 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       restTimer: { ...s.restTimer, duration: sec, remaining: s.restTimer.status === 'idle' ? sec : s.restTimer.remaining },
       restTimerPickerOpen: false,
     })),
+  // (the rest-timer default is also saved to the account — see below)
   buildLoggedSetsCsv: () => {
-    const { sets, findExerciseById } = get();
-    const rows: string[][] = [['Exercise', 'Set', 'Weight (kg)', 'Reps']];
-    Object.keys(sets).forEach((exId) => {
-      const rows_ = sets[exId] || [];
-      if (!rows_.length) return;
-      const ex = findExerciseById(exId);
-      const name = ex ? ex.name : exId;
-      rows_.forEach((s, i) => rows.push([name, String(i + 1), String(s.weight), String(s.reps)]));
-    });
+    const rows: string[][] = [['Date', 'Workout', 'Exercise', 'Set', 'Weight (kg)', 'Reps']];
+    [...get().workoutLogs]
+      .sort((a, b) => a.date - b.date)
+      .forEach((log) => {
+        const counts: Record<string, number> = {};
+        log.sets.forEach((st) => {
+          counts[st.exerciseName] = (counts[st.exerciseName] || 0) + 1;
+          rows.push([new Date(log.date).toISOString().slice(0, 10), log.sessionKey, st.exerciseName, String(counts[st.exerciseName]), String(st.weight), String(st.reps)]);
+        });
+      });
     return rows.map((r) => r.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
   },
 
-  activities: INITIAL_ACTIVITIES,
+  activities: [],
   activeActivityIndex: null,
   getActivityRoute: (a) => {
     if (a.type === 'running' && a.runStats) return 'RunDetail';
@@ -1088,20 +1048,26 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   setLogActivityDuration: (v) => set({ logActivityDuration: v }),
   setLogActivityDistance: (v) => set({ logActivityDistance: v }),
   saveLoggedActivity: () => {
-    const { logActivityDuration, logActivityType, logActivityDistance, logActivityTitle, unitSystem, activities } = get();
+    const { logActivityDuration, logActivityType, logActivityDistance, logActivityTitle, unitSystem } = get();
     const dur = parseFloat(logActivityDuration);
     if (!dur || dur <= 0) return;
     const typeInfo = LOGGABLE_ACTIVITY_TYPES.find((t) => t.id === logActivityType)!;
     const enteredDist = parseFloat(logActivityDistance) || 0;
     const distKm = typeInfo.hasDistance && enteredDist > 0 ? distanceToKm(enteredDist, unitSystem) : 0;
     const title = logActivityTitle.trim() || typeInfo.defaultTitle;
-    const meta = distKm > 0 ? `${typeInfo.label} · ${fmtDistance(distKm, unitSystem)}` : `${typeInfo.label} · ${Math.round(dur)} min`;
-    set({
-      activities: [
-        { type: logActivityType, title, meta, time: 'Just now', daysAgo: 0, otherStats: { duration: Math.round(dur), distance: distKm > 0 ? distKm : null } },
-        ...activities,
-      ],
+    const record: CardioRecord = { id: `local-${Date.now()}`, type: logActivityType, title, date: Date.now(), distanceKm: distKm, durationMin: dur };
+    set((s) => {
+      const cardio = [record, ...s.cardio];
+      return { cardio, activities: buildActivities(s.workoutLogs, cardio) };
     });
+    saveRunActivity({ type: logActivityType, title, distance: distKm, duration: String(dur), date: new Date(record.date).toISOString() })
+      .then((saved) =>
+        set((s) => {
+          const cardio = s.cardio.map((c) => (c.id === record.id ? cardioFromResponse(saved) : c));
+          return { cardio, activities: buildActivities(s.workoutLogs, cardio) };
+        }),
+      )
+      .catch(() => set((s) => ({ pendingCardio: [...s.pendingCardio, record] })));
   },
 
   shareCardStyle: 'compact',
@@ -1144,7 +1110,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       EXERCISE_POOL[group].forEach((name) => {
         if (!used.has(name)) {
           const id = 'pool_' + slugify(name);
-          list.push({ id, name, group, sets: 3, previous: Math.round((15 + seededRandom(id) * 45) / 2.5) * 2.5 });
+          list.push({ id, name, group, sets: 3, previous: lastLoggedWeight(name, get().workoutLogs) });
         }
       });
     });
@@ -1154,7 +1120,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   setAnalyticsSearch: (val) => set({ analyticsSearch: val }),
 
   activeExerciseId: null,
-  sets: { ex1: [{ num: 1, weight: 84, reps: 8 }], ex2: [{ num: 1, weight: 43, reps: 10 }], ex3: [], ex4: [] },
+  sets: {},
   weightInput: '',
   repsInput: '',
   openExercise: (id) => set({ activeExerciseId: id, weightInput: '', repsInput: '' }),
@@ -1178,9 +1144,20 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     const reps = parseInt(repsInput, 10);
     if (!Number.isFinite(enteredWeight) || !Number.isFinite(reps) || enteredWeight <= 0 || reps <= 0) return;
     const weight = weightToKg(enteredWeight, unitSystem);
-    const list = sets[activeExerciseId] || [];
+    // A set logged with no workout running would never be saved — start one for
+    // the session this exercise belongs to (before adding, so the snapshot
+    // taken at start excludes this set).
+    if (!get().workout.active) {
+      const { sessions } = get();
+      const key = Object.keys(sessions).find((k) => sessions[k].exercises.some((e) => e.id === activeExerciseId));
+      if (key) {
+        set({ activeSessionKey: key });
+        get().startWorkout();
+      }
+    }
+    const list = get().sets[activeExerciseId] || [];
     const next = [...list, { num: list.length + 1, weight, reps }];
-    set({ sets: { ...sets, [activeExerciseId]: next }, weightInput: '', repsInput: '' });
+    set({ sets: { ...get().sets, [activeExerciseId]: next }, weightInput: '', repsInput: '' });
   },
   updateSet: (exId, idx, field, value) =>
     set((s) => {
@@ -1275,7 +1252,10 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       return {
         sessions: { ...s.sessions, [sessionKey]: { ...session, exercises } },
         customExerciseCounter: s.customExerciseCounter + 1,
-        addExerciseFor: null,
+        // Only reset the search box, not `addExerciseFor` — closing the sheet
+        // after every single pick meant re-opening "Add Exercise" from
+        // scratch for each one. Matches addExerciseToCustomSession's
+        // behavior, which already got this right.
         addExerciseSearch: '',
       };
     });
@@ -1283,21 +1263,26 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     if (group === 'Custom') saveCustomExercise({ name, group }).catch(() => {});
   },
 
-  workout: { active: false, seconds: 0 },
+  workout: { active: false, seconds: 0, startedAt: null },
   workoutSnapshotCounts: null,
   startWorkout: () => {
     const { activeSessionKey, sessions, sets } = get();
+    const session = sessions[activeSessionKey];
+    if (!session) return;
     const snapshot: Record<string, number> = {};
-    sessions[activeSessionKey].exercises.forEach((ex) => {
+    session.exercises.forEach((ex) => {
       snapshot[ex.id] = (sets[ex.id] || []).length;
     });
-    set({ workout: { active: true, seconds: 0 }, restTimer: { ...REST_TIMER_DEFAULT }, workoutSnapshotCounts: snapshot });
+    set({ workout: { active: true, seconds: 0, startedAt: Date.now() }, restTimer: { ...REST_TIMER_DEFAULT }, workoutSnapshotCounts: snapshot });
   },
-  tickWorkout: () => set((s) => ({ workout: { ...s.workout, seconds: s.workout.seconds + 1 } })),
+  // Elapsed time comes from the start timestamp, not from counting ticks, so
+  // it stays right while the app is backgrounded or the screen is locked.
+  tickWorkout: () =>
+    set((s) => (s.workout.startedAt ? { workout: { ...s.workout, seconds: Math.floor((Date.now() - s.workout.startedAt) / 1000) } } : {})),
   cancelWorkout: () => {
     const { workoutSnapshotCounts, sets, activeSessionKey, sessions } = get();
     const nextSets = { ...sets };
-    if (workoutSnapshotCounts) {
+    if (workoutSnapshotCounts && sessions[activeSessionKey]) {
       sessions[activeSessionKey].exercises.forEach((ex) => {
         const keepCount = workoutSnapshotCounts[ex.id] ?? 0;
         nextSets[ex.id] = (sets[ex.id] || []).slice(0, keepCount);
@@ -1305,32 +1290,43 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     }
     set((s) => ({
       sets: nextSets,
-      workout: { ...s.workout, active: false },
+      workout: { active: false, seconds: 0, startedAt: null },
       restTimer: { ...s.restTimer, status: 'idle' },
       workoutSnapshotCounts: null,
     }));
   },
   finishWorkout: async () => {
-    const { workoutSnapshotCounts, sets, activeSessionKey, sessions } = get();
+    const { workoutSnapshotCounts, sets, activeSessionKey, sessions, workout } = get();
     const session = sessions[activeSessionKey];
-    const newSets: { exerciseId: string; exerciseName: string; reps: number; weight: number }[] = [];
-    session.exercises.forEach((ex) => {
+    const durationSec = workout.startedAt ? Math.round((Date.now() - workout.startedAt) / 1000) : workout.seconds;
+    const newSets: { exerciseName: string; reps: number; weight: number }[] = [];
+    const nextSets = { ...sets };
+    (session?.exercises ?? []).forEach((ex) => {
       const keepCount = workoutSnapshotCounts?.[ex.id] ?? 0;
       (sets[ex.id] || []).slice(keepCount).forEach((row) => {
-        newSets.push({ exerciseId: ex.id, exerciseName: ex.name, reps: row.reps, weight: row.weight });
+        newSets.push({ exerciseName: ex.name, reps: row.reps, weight: row.weight });
       });
+      nextSets[ex.id] = []; // saved sets are history now, not "today's sets"
     });
-    set((s) => ({
-      workout: { ...s.workout, active: false },
-      restTimer: { ...s.restTimer, status: 'idle' },
-      workoutSnapshotCounts: null,
-    }));
+    const date = Date.now();
+    const localId = `local-${date}`;
+    const record: WorkoutLogRecord = { id: localId, sessionKey: activeSessionKey, date, durationSec, sets: newSets };
+    set((s) => {
+      const base = { workout: { active: false, seconds: 0, startedAt: null }, restTimer: { ...s.restTimer, status: 'idle' as const }, workoutSnapshotCounts: null, sets: nextSets };
+      if (newSets.length === 0) return base;
+      const workoutLogs = [record, ...s.workoutLogs];
+      return { ...base, workoutLogs, activities: buildActivities(workoutLogs, s.cardio), sessions: withPreviousWeights(s.sessions, workoutLogs) };
+    });
     if (newSets.length === 0) return { ok: true };
     try {
-      await saveWorkoutLog(activeSessionKey, newSets);
-      set((s) => ({ workoutLogDates: [...s.workoutLogDates, new Date().toISOString()] }));
+      const saved = await saveWorkoutLog(activeSessionKey, newSets, { durationSec, date: new Date(date).toISOString() });
+      set((s) => {
+        const workoutLogs = s.workoutLogs.map((l) => (l.id === localId ? workoutLogFromResponse(saved) : l));
+        return { workoutLogs, activities: buildActivities(workoutLogs, s.cardio) };
+      });
       return { ok: true };
     } catch (err) {
+      set((s) => ({ pendingLogs: [...s.pendingLogs, { sessionKey: activeSessionKey, sets: newSets, durationSec, date, localId }] }));
       return { ok: false, error: err instanceof Error ? err.message : 'Failed to save workout.' };
     }
   },
@@ -1380,6 +1376,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
 
   runTrackerOpen: false,
   runStatus: 'idle',
+  gpsIssue: null,
   countdownVal: 5,
   run: { ...RUN_DEFAULT },
   runSetupOpen: false,
@@ -1389,7 +1386,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   customDistanceVal: 8,
   intervalMeters: 400,
   intervalReps: 6,
-  openRunTracker: () => set({ runTrackerOpen: true, runStatus: 'idle', run: { ...RUN_DEFAULT } }),
+  openRunTracker: () => set({ runTrackerOpen: true, runStatus: 'idle', gpsIssue: null, run: { ...RUN_DEFAULT } }),
   closeRunTracker: () => {
     stopRunTracking().catch(() => {}); // best-effort — local state resets regardless
     set({ runTrackerOpen: false, runStatus: 'idle' });
@@ -1402,7 +1399,11 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
         // Fire-and-forget: starts the (single, background-capable) GPS
         // subscription once per run. Denying "Always" still leaves
         // foreground tracking working — see startRunTracking's comment.
-        startRunTracking().catch(() => {});
+        startRunTracking()
+          .then((ok) => {
+            if (!ok) set({ gpsIssue: 'denied' });
+          })
+          .catch(() => set({ gpsIssue: 'denied' }));
         return { runStatus: 'running', countdownVal: 0 };
       }
       return { countdownVal: next };
@@ -1436,42 +1437,53 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       };
     }),
   finishRun: () => {
-    const { run, activities } = get();
+    const { run } = get();
     stopRunTracking().catch(() => {});
-    const durationMin = Math.round(run.elapsed / 60);
-    const avgSpeedKmh = run.elapsed > 0 ? run.distance / (run.elapsed / 3600) : 0;
-    // Rough estimate (no weight/HR sensor to derive it from properly) — ~65 kcal/km is a
-    // reasonable flat approximation for an average-effort run, consistent with the rest
-    // of this prototype's mock-but-plausible stats.
-    const calories = Math.round(run.distance * 65);
-    const newActivity: ActivityItem = {
-      type: 'running',
-      title: 'Outdoor Run',
-      meta: `Running · ${run.distance.toFixed(1)} km`,
-      time: 'Just now',
-      daysAgo: 0,
-      runStats: {
-        distance: run.distance,
-        duration: durationMin,
-        calories,
-        avgSpeed: avgSpeedKmh,
-        maxSpeed: run.maxSpeedKmh,
-        route: run.route,
-      },
-    };
-    set({
-      activities: run.distance > 0 ? [newActivity, ...activities] : activities,
-      runTrackerOpen: false,
-      runStatus: 'idle',
-    });
-    if (run.distance > 0) {
-      saveRunActivity({ type: 'running', distance: run.distance, duration: String(durationMin), route: run.route }).catch(() => {});
+    if (run.distance <= 0) {
+      // Nothing was recorded (the overlay confirms with the user before this).
+      set({ runTrackerOpen: false, runStatus: 'idle' });
+      return;
     }
+    const durationMin = run.elapsed / 60;
+    const record: CardioRecord = {
+      id: `local-${Date.now()}`,
+      type: 'running',
+      title: DEFAULT_ACTIVITY_TITLE.running,
+      date: Date.now(),
+      distanceKm: run.distance,
+      durationMin,
+      route: run.route,
+    };
+    set((s) => {
+      const cardio = [record, ...s.cardio];
+      return { cardio, activities: buildActivities(s.workoutLogs, cardio), runTrackerOpen: false, runStatus: 'idle' };
+    });
+    saveRunActivity({
+      type: 'running',
+      title: record.title,
+      distance: record.distanceKm,
+      duration: durationMin.toFixed(2),
+      date: new Date(record.date).toISOString(),
+      route: run.route,
+    })
+      .then((saved) =>
+        set((s) => {
+          const cardio = s.cardio.map((c) => (c.id === record.id ? cardioFromResponse(saved) : c));
+          return { cardio, activities: buildActivities(s.workoutLogs, cardio) };
+        }),
+      )
+      .catch(() => set((s) => ({ pendingCardio: [...s.pendingCardio, record] })));
   },
   openRunSetup: () => set({ runSetupOpen: true }),
   closeRunSetup: () => set({ runSetupOpen: false }),
-  selectRunType: (t) => set({ runType: t }),
-  selectDistanceGoal: (d) => set({ distanceGoal: d, distanceCustom: false }),
+  selectRunType: (t) => {
+    set({ runType: t });
+    persistSettings({ runType: t });
+  },
+  selectDistanceGoal: (d) => {
+    set({ distanceGoal: d, distanceCustom: false });
+    persistSettings({ distanceGoal: d });
+  },
   openCustomDistance: () => set((s) => ({ distanceCustom: true, distanceGoal: s.customDistanceVal })),
   adjustCustomDistance: (delta) =>
     set((s) => {
@@ -1494,5 +1506,6 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
 // on the same device, so it can't briefly leak into the new session's UI.
 const INITIAL_TRACKER_STATE = useTrackerStore.getState();
 export function resetTrackerStore(): void {
+  disableProgramSync();
   useTrackerStore.setState(INITIAL_TRACKER_STATE, true);
 }

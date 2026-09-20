@@ -4,6 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts } from '@/theme/trackerTokens';
 import { useTrackerStore, ACTIVITY_ICONS } from '@/store/trackerStore';
 import { fmtDistance } from '@/engine/units';
+import { activityWhen } from '@/engine/records';
+import { DeleteActivityButton } from '@/components/tracker/DeleteActivityButton';
 import { DetailScreenHeader } from '@/components/tracker/DetailScreenHeader';
 import { MetricIcon } from '@/components/tracker/iconMap';
 
@@ -16,9 +18,9 @@ export function OtherActivityDetailScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <DetailScreenHeader title={a.title} />
+      <DetailScreenHeader title={a.title} right={<DeleteActivityButton />} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.time}>{a.time}</Text>
+        <Text style={styles.time}>{activityWhen(a)}</Text>
         <View style={styles.iconWrap}>
           <MetricIcon id={ACTIVITY_ICONS[a.type]} size={30} color={colors.text} />
         </View>

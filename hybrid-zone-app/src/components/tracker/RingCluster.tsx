@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { runOnJS, useAnimatedProps, useAnimatedReaction, useSharedValue, withTiming } from 'react-native-reanimated';
-import Svg, { Circle, Defs, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Circle } from 'react-native-svg';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { TrChevRightIcon } from '@/icons';
-import { rcCenterRing, rcCurvedLine } from '@/engine/ringGeometry';
-import { useTrackerStore, RING_DATA_BASE } from '@/store/trackerStore';
-import { viewSeedFor, varyValue } from '@/engine/metricVariance';
+import { useTrackerStore } from '@/store/trackerStore';
+import { useRingValues } from '@/hooks/useStats';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-const SIZE = 140;
+const SIZE = 148;
+const STROKE = 12;
+const GAP = 5;
 
 // Smoothly tweens a plain JS number toward `target` — used anywhere a value
 // needs to animate but can't be driven by useAnimatedProps directly (SVG
@@ -30,82 +31,59 @@ function useAnimatedNumber(target: number, duration = 900): number {
   return display;
 }
 
-// Ambient glow behind each ring — the source uses a CSS blur filter on plain divs,
-// which has no direct RN equivalent; a soft radial-gradient blob (react-native-svg,
-// well-supported) reads the same at this scale. See plan's noted glow fallback.
-function GlowBlob({ width, height, color, style }: { width: number; height: number; color: string; style?: object }) {
-  const id = `glow-${color.replace(/[^a-zA-Z0-9]/g, '')}-${width}x${height}`;
-  return (
-    <View style={[{ width, height, position: 'absolute' }, style]} pointerEvents="none">
-      <Svg width={width} height={height}>
-        <Defs>
-          <RadialGradient id={id} cx="50%" cy="50%" rx="50%" ry="50%">
-            <Stop offset="0%" stopColor={color} stopOpacity={0.55} />
-            <Stop offset="100%" stopColor={color} stopOpacity={0} />
-          </RadialGradient>
-        </Defs>
-        <Rect x={0} y={0} width={width} height={height} fill={`url(#${id})`} />
-      </Svg>
-    </View>
-  );
-}
-
-function CenterRing({ pct }: { pct: number }) {
-  const geo = rcCenterRing(pct, SIZE);
+// One ring of the concentric set. Index 0 is the outermost; each ring inward
+// steps down by its own thickness plus a gap.
+function RingLayer({ index, pct, color, dim }: { index: number; pct: number; color: string; dim: string }) {
+  const r = SIZE / 2 - STROKE / 2 - 2 - index * (STROKE + GAP);
+  const c = 2 * Math.PI * r;
   const progress = useSharedValue(0);
   useEffect(() => {
-    progress.value = withTiming(pct, { duration: 900 });
+    progress.value = withTiming(Math.min(1, Math.max(0, pct)), { duration: 900 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pct]);
-  const animatedProps = useAnimatedProps(() => ({
-    strokeDashoffset: geo.circumference - geo.circumference * (progress.value / 100),
-  }));
+  const animatedProps = useAnimatedProps(() => ({ strokeDashoffset: c * (1 - progress.value) }));
   return (
-    <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
-      <Circle cx={geo.cx} cy={geo.cy} r={geo.radius} fill="none" stroke={colors.rcGoalDim} strokeWidth={geo.strokeWidth} />
+    <>
+      <Circle cx={SIZE / 2} cy={SIZE / 2} r={r} fill="none" stroke={dim} strokeWidth={STROKE} />
       <AnimatedCircle
-        cx={geo.cx}
-        cy={geo.cy}
-        r={geo.radius}
+        cx={SIZE / 2}
+        cy={SIZE / 2}
+        r={r}
         fill="none"
-        stroke={colors.rcGoal}
-        strokeWidth={geo.strokeWidth}
+        stroke={color}
+        strokeWidth={STROKE}
         strokeLinecap="round"
-        strokeDasharray={geo.circumference}
+        strokeDasharray={c}
         animatedProps={animatedProps}
         rotation={-90}
-        origin={`${geo.cx}, ${geo.cy}`}
+        origin={`${SIZE / 2}, ${SIZE / 2}`}
       />
-    </Svg>
+    </>
   );
 }
 
-// SVG Path `d` strings can't be driven by useAnimatedProps directly (rcCurvedLine
-// isn't a worklet), so this recomputes the path in JS off useAnimatedNumber's
-// ticking value instead — same 900ms timing as CenterRing, driven differently.
-function CurvedLine({ pct, side, color, dimColor }: { pct: number; side: 'left' | 'right'; color: string; dimColor: string }) {
-  const displayPct = useAnimatedNumber(pct);
-  const geo = rcCurvedLine(displayPct, SIZE, side);
+function LegendRow({ label, value, color, onPress }: { label: string; value: number; color: string; onPress: () => void }) {
   return (
-    <Svg width={geo.viewBox.w} height={geo.viewBox.h} viewBox={`${geo.viewBox.x} ${geo.viewBox.y} ${geo.viewBox.w} ${geo.viewBox.h}`}>
-      <Path d={geo.trackPath} fill="none" stroke={dimColor} strokeWidth={geo.strokeWidth} strokeLinecap="round" />
-      <Path d={geo.progPath} fill="none" stroke={color} strokeWidth={geo.strokeWidth} strokeLinecap="round" />
-    </Svg>
+    <Pressable style={styles.legendRow} onPress={onPress}>
+      <View style={[styles.legendBar, { backgroundColor: color }]} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.legendLabel}>{label}</Text>
+        <Text style={[styles.legendVal, { color }]}>
+          {Math.round(value)}
+          <Text style={styles.legendPct}>%</Text>
+        </Text>
+      </View>
+      <TrChevRightIcon size={12} color={colors.neutral500} />
+    </Pressable>
   );
 }
 
-// Matches Tracker (new).html's ringCluster()/getViewRingData(). Ring values vary
-// deterministically when viewing a non-today day (same seeded-variance pattern as
-// engine/metricVariance.ts, ported inline here since it uses its own base values).
+// The three ring values for the week the calendar is showing — computed from
+// what was actually logged (see engine/stats.ts), so a week with nothing logged
+// honestly reads 0%.
 export function useViewRingData() {
-  const { viewWeekOffset, viewDay, isViewingToday } = useTrackerStore();
-  if (isViewingToday()) return RING_DATA_BASE;
-  const seed = viewSeedFor(viewWeekOffset, viewDay);
-  return {
-    goal: Math.min(1, Math.max(0, varyValue(RING_DATA_BASE.goal, seed, '_goal', 0.4))),
-    consistency: Math.min(1, Math.max(0, varyValue(RING_DATA_BASE.consistency, seed, '_consistency', 0.25))),
-    volume: Math.max(0, varyValue(RING_DATA_BASE.volume, seed, '_volume', 0.45)),
-  };
+  const viewWeekOffset = useTrackerStore((s) => s.viewWeekOffset);
+  return useRingValues(viewWeekOffset);
 }
 
 export function RingCluster() {
@@ -117,62 +95,43 @@ export function RingCluster() {
 
   return (
     <View style={styles.card}>
-      <View style={styles.ringsRow}>
-        <GlowBlob width={56} height={16} color={colors.rcConsistency} style={{ left: 8 }} />
-        <GlowBlob width={110} height={24} color={colors.rcGoal} style={{ left: '50%', marginLeft: -55 }} />
-        <GlowBlob width={56} height={16} color={colors.rcVolume} style={{ right: 8 }} />
-
-        <View style={styles.sideText}>
-          <Text style={[styles.sideNum, { color: colors.rcConsistency }]}>{Math.round(consistencyNum)}</Text>
-        </View>
-        <View style={styles.centerWrap}>
-          <CurvedLine pct={data.consistency} side="left" color={colors.rcConsistency} dimColor={colors.rcConsistencyDim} />
-        </View>
-        <View style={styles.centerWrap}>
-          <CenterRing pct={data.goal * 100} />
-          <View style={styles.centerNumWrap}>
-            <Text style={[styles.centerNum, { color: colors.rcGoal }]}>{Math.round(goalNum)}</Text>
+      <View style={styles.body}>
+        <View style={styles.ringsWrap}>
+          <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+            <RingLayer index={0} pct={data.goal} color={colors.rcGoal} dim={colors.rcGoalDim} />
+            <RingLayer index={1} pct={data.consistency} color={colors.rcConsistency} dim={colors.rcConsistencyDim} />
+            <RingLayer index={2} pct={data.volume} color={colors.rcVolume} dim={colors.rcVolumeDim} />
+          </Svg>
+          <View style={styles.centerNumWrap} pointerEvents="none">
+            <Text style={styles.centerNum}>{Math.round(goalNum)}</Text>
+            <Text style={styles.centerCaption}>GOAL</Text>
           </View>
         </View>
-        <View style={styles.centerWrap}>
-          <CurvedLine pct={data.volume} side="right" color={colors.rcVolume} dimColor={colors.rcVolumeDim} />
-        </View>
-        <View style={styles.sideText}>
-          <Text style={[styles.sideNum, { color: colors.rcVolume }]}>
-            {Math.round(volumeNum)}
-            <Text style={styles.sidePct}>%</Text>
-          </Text>
-        </View>
-      </View>
 
-      <View style={styles.labelsRow}>
-        <Pressable style={styles.labelItem} onPress={() => openMetricDetail('consistency')}>
-          <Text style={styles.labelText}>CONSISTENCY</Text>
-          <TrChevRightIcon size={9} color={colors.text} />
-        </Pressable>
-        <Pressable style={styles.labelItem} onPress={() => openMetricDetail('goal')}>
-          <Text style={styles.labelText}>WEEKLY GOAL</Text>
-          <TrChevRightIcon size={9} color={colors.text} />
-        </Pressable>
-        <Pressable style={styles.labelItem} onPress={() => openMetricDetail('volume')}>
-          <Text style={styles.labelText}>VOLUME TREND</Text>
-          <TrChevRightIcon size={9} color={colors.text} />
-        </Pressable>
+        <View style={styles.legend}>
+          <LegendRow label="WEEKLY GOAL" value={goalNum} color={colors.rcGoal} onPress={() => openMetricDetail('goal')} />
+          <View style={styles.legendDivider} />
+          <LegendRow label="CONSISTENCY" value={consistencyNum} color={colors.rcConsistency} onPress={() => openMetricDetail('consistency')} />
+          <View style={styles.legendDivider} />
+          <LegendRow label="VOLUME TREND" value={volumeNum} color={colors.rcVolume} onPress={() => openMetricDetail('volume')} />
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: colors.bg, borderRadius: radius.lg, paddingTop: 16, paddingBottom: 10, paddingHorizontal: 10, borderWidth: 1, borderColor: colors.divider },
-  ringsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  sideText: { width: 40, alignItems: 'center' },
-  sideNum: { fontFamily: fonts.semiBold, fontSize: 18 },
-  sidePct: { fontSize: 11 },
-  centerWrap: { position: 'relative' },
-  centerNumWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  centerNum: { fontFamily: fonts.semiBold, fontSize: 32, lineHeight: 34 },
-  labelsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 6, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.divider },
-  labelItem: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 2 },
-  labelText: { fontFamily: fonts.semiBold, fontSize: 10, color: colors.text, letterSpacing: 0.2, textAlign: 'center' },
+  card: { backgroundColor: colors.bg, borderRadius: radius.lg, padding: 16, borderWidth: 1, borderColor: colors.divider },
+  body: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  ringsWrap: { width: SIZE, height: SIZE, alignItems: 'center', justifyContent: 'center' },
+  centerNumWrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
+  centerNum: { fontFamily: fonts.semiBold, fontSize: 22, lineHeight: 24, color: colors.text },
+  centerCaption: { fontFamily: fonts.semiBold, fontSize: 8.5, letterSpacing: 0.8, color: colors.neutral500, marginTop: 1 },
+  legend: { flex: 1 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  legendBar: { width: 4, height: 32, borderRadius: 2 },
+  legendLabel: { fontFamily: fonts.semiBold, fontSize: 10, letterSpacing: 0.6, color: colors.neutral500 },
+  legendVal: { fontFamily: fonts.semiBold, fontSize: 21, marginTop: 1 },
+  legendPct: { fontSize: 12 },
+  legendDivider: { height: 1, backgroundColor: colors.divider },
 });

@@ -3,6 +3,7 @@ import type { RoutePoint } from '@/engine/gps';
 
 export interface RunActivityPayload {
   type: string;
+  title?: string;
   date?: string;
   distance: number;
   duration: string;

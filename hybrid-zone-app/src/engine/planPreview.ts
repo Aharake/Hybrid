@@ -3,7 +3,7 @@
 // getSessionTypesForSplit / getRunningSessionTypes / suffixLabels / buildPlanRows),
 // reworked to take explicit params instead of reading a global `S` object.
 
-import { DAY_ORDER, WeekSchedule } from './schedule';
+import { DAY_ORDER, Dow, WeekSchedule } from './schedule';
 import { FocusOption, getRecommendation } from './split';
 
 export type Equipment = 'gym' | 'dumbbells' | 'bodyweight';
@@ -85,7 +85,7 @@ function getSessionTypesForSplit(splitValue: SplitValue, sN: number, focus: Focu
   return getRecommendation(sN, focus).tokens; // 'custom' (and fallback)
 }
 
-function getRunningSessionTypes(rN: number, goal: RunningGoal | null): string[] {
+export function getRunningSessionTypes(rN: number, goal: RunningGoal | null): string[] {
   if (rN <= 0) return [];
   if (goal === 'first5k') return Array(rN).fill('Run/Walk Progression');
   if (goal === 'fun') return Array(rN).fill('Easy Run');
@@ -140,4 +140,53 @@ export function buildPlanRows(params: {
     }
   });
   return rows;
+}
+
+export interface WeekPreviewDay {
+  day: Dow;
+  strength: string | null;
+  running: string | null;
+}
+
+// Same session assignment as buildPlanRows, but keyed by weekday — used by the
+// Training Split screen to show which session lands on which day as the user
+// picks a split.
+export function buildWeekPreview(params: {
+  schedule: WeekSchedule;
+  split: SplitValue;
+  focus: FocusOption | null;
+  runningGoal: RunningGoal | null;
+}): WeekPreviewDay[] {
+  const { schedule, split, focus, runningGoal } = params;
+  const strengthDays = DAY_ORDER.filter((d) => schedule[d].strength);
+  const runningDays = DAY_ORDER.filter((d) => schedule[d].running);
+  const labelsS = suffixLabels(getSessionTypesForSplit(split, strengthDays.length, focus));
+  const labelsR = getRunningSessionTypes(runningDays.length, runningGoal);
+  let si = 0;
+  let ri = 0;
+  return DAY_ORDER.map((day) => {
+    const c = schedule[day];
+    return {
+      day,
+      strength: c.strength ? labelsS[si++] || 'Strength' : null,
+      running: c.running ? labelsR[ri++] || 'Run' : null,
+    };
+  });
+}
+
+// Session names for a split, e.g. ['Push', 'Pull', 'Legs'] or ['Full body A', 'Full body B'].
+export function planSessionLabels(split: SplitValue, sN: number, focus: FocusOption | null): { tokens: string[]; labels: string[] } {
+  const tokens = getSessionTypesForSplit(split, sN, focus);
+  return { tokens, labels: suffixLabels(tokens) };
+}
+
+// How many exercises a session of this type has — the same number the plan
+// preview promises the user ("5 exercises"), so the real program matches it.
+export function sessionExerciseCount(token: string, equipment: Equipment | null, strengthGoal: StrengthGoal | null): number {
+  if (equipment === 'bodyweight') {
+    if (strengthGoal === 'tone') return 4; // 4-exercise circuit
+    const bucket: 'muscle' | 'strength' = strengthGoal === 'muscle' ? 'muscle' : 'strength';
+    return BW_EXERCISE_COUNT[bucket][token] || 4;
+  }
+  return SESSION_EXERCISE_COUNT[token] || 5;
 }

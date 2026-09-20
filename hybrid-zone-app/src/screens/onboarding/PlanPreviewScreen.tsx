@@ -47,16 +47,16 @@ export function PlanPreviewScreen() {
         <Text style={[typography.title, { color: colors.text, marginBottom: 10 }]}>Your plan is ready</Text>
         <Text style={typography.subtitle}>This is your roadmap to real progress.</Text>
       </View>
+      {includeRunning && (
+        <View style={{ marginTop: 22, marginBottom: 8 }}>
+          <OnboardingGraph />
+        </View>
+      )}
       <View style={styles.grid}>
         {rows.map((r, i) => (
           <PlanCard key={i} title={r.title} sub={r.sub} index={i + 1} />
         ))}
       </View>
-      {includeRunning && (
-        <View style={{ marginTop: 26 }}>
-          <OnboardingGraph />
-        </View>
-      )}
     </OnboardingScreen>
   );
 }

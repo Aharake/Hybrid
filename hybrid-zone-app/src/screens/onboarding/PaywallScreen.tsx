@@ -1,32 +1,47 @@
-import React from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
 import { PrimaryButton } from '@/components/PrimaryButton';
-import { useOnboardingStore } from '@/store/onboardingStore';
-import { colors, fonts, radius, typography } from '@/theme/tokens';
+import { colors, fonts, typography } from '@/theme/tokens';
 import { CheckCircleBigIcon } from '@/icons';
 import type { OnboardingStackParamList } from '@/navigation/types';
 import { useSubscriptionStore, isRevenueCatConfigured } from '@/store/subscriptionStore';
+import { API_BASE_URL } from '@/api/client';
 
 const FEATURES = [
   'Personalized strength + running plan',
   'Adaptive weekly scheduling',
   'Progress tracking & analytics',
-  'Cancel anytime, no questions asked',
+  'Manage or cancel any time in your App Store settings',
 ];
 
+// Prices and trial terms are never hardcoded here: they come from the
+// subscription products configured in RevenueCat / the App Store, and are
+// shown by RevenueCat's own paywall before anything is purchased. Without
+// that setup this screen simply continues to account creation.
 export function PaywallScreen() {
-  const { planTier, setField } = useOnboardingStore();
   const navigation = useNavigation<NativeStackNavigationProp<OnboardingStackParamList>>();
-  const restore = useSubscriptionStore((s) => s.restore);
+  const { restore, presentPaywall } = useSubscriptionStore();
+  const [busy, setBusy] = useState(false);
 
-  const handleRestore = async () => {
+  const handleContinue = async () => {
     if (!isRevenueCatConfigured) {
-      Alert.alert('This is a design prototype.');
+      navigation.navigate('Auth');
       return;
     }
+    setBusy(true);
+    const result = await presentPaywall();
+    setBusy(false);
+    if (result.error) {
+      Alert.alert("Couldn't load the plans", 'You can continue for now and subscribe later from Profile → Hyvo Pro.');
+    }
+    // Purchased, restored, or dismissed — either way, on to creating the account.
+    navigation.navigate('Auth');
+  };
+
+  const handleRestore = async () => {
     const result = await restore();
     Alert.alert(result.ok ? 'Restored' : 'Restore failed', result.ok ? 'Your purchases have been restored.' : result.error);
   };
@@ -35,18 +50,28 @@ export function PaywallScreen() {
     <OnboardingScreen
       footer={
         <>
-          <PrimaryButton label="Start free trial" onPress={() => navigation.navigate('Auth')} />
-          <Pressable style={styles.linkRow} onPress={handleRestore}>
-            <Text style={styles.link}>Restore purchase</Text>
-          </Pressable>
+          {busy ? (
+            <View style={styles.busy}>
+              <ActivityIndicator color={colors.text} />
+            </View>
+          ) : (
+            <PrimaryButton label={isRevenueCatConfigured ? 'See plans' : 'Continue'} onPress={handleContinue} />
+          )}
+          {isRevenueCatConfigured && (
+            <Pressable style={styles.linkRow} onPress={handleRestore}>
+              <Text style={styles.link}>Restore purchase</Text>
+            </Pressable>
+          )}
         </>
       }
     >
       <View style={styles.hero}>
         <Text style={[typography.title, { color: colors.text, marginBottom: 10, textAlign: 'center' }]}>
-          Start your free trial
+          {isRevenueCatConfigured ? 'Get the most from Hyvo' : 'Your plan is ready'}
         </Text>
-        <Text style={[typography.subtitle, { textAlign: 'center' }]}>3 days free, then renews automatically. Cancel anytime.</Text>
+        <Text style={[typography.subtitle, { textAlign: 'center' }]}>
+          {isRevenueCatConfigured ? 'Plans and pricing are shown before you subscribe.' : 'Create your account to save your plan and start training.'}
+        </Text>
       </View>
 
       <View style={styles.featureList}>
@@ -60,31 +85,16 @@ export function PaywallScreen() {
         ))}
       </View>
 
-      <Pressable
-        onPress={() => setField('planTier', 'annual')}
-        style={[styles.planOption, planTier === 'annual' && styles.planOptionSelected]}
-      >
-        <View>
-          <Text style={[styles.planLabel, planTier === 'annual' && styles.planLabelSelected]}>Annual</Text>
-          <Text style={[styles.planDesc, planTier === 'annual' && styles.planDescSelected]}>$59.99/yr — $5/mo</Text>
-        </View>
-        <View style={styles.saveBadge}>
-          <Text style={styles.saveBadgeText}>SAVE 50%</Text>
-        </View>
-      </Pressable>
-
-      <Pressable
-        onPress={() => setField('planTier', 'monthly')}
-        style={[styles.planOption, planTier === 'monthly' && styles.planOptionSelected]}
-      >
-        <View>
-          <Text style={[styles.planLabel, planTier === 'monthly' && styles.planLabelSelected]}>Monthly</Text>
-          <Text style={[styles.planDesc, planTier === 'monthly' && styles.planDescSelected]}>$9.99/mo</Text>
-        </View>
-      </Pressable>
-
       <Text style={styles.fine}>
-        3-day free trial, then billed at the selected plan price. Cancel anytime before the trial ends in Settings.
+        By continuing you agree to the{' '}
+        <Text style={styles.finelink} onPress={() => Linking.openURL(`${API_BASE_URL}/terms`)}>
+          Terms of Service
+        </Text>{' '}
+        and{' '}
+        <Text style={styles.finelink} onPress={() => Linking.openURL(`${API_BASE_URL}/privacy`)}>
+          Privacy Policy
+        </Text>
+        .
       </Text>
     </OnboardingScreen>
   );
@@ -96,24 +106,9 @@ const styles = StyleSheet.create({
   featureItem: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   featureIcon: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center' },
   featureText: { fontFamily: fonts.semiBold, fontSize: 14.5, color: colors.text },
-  planOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    marginBottom: 12,
-  },
-  planOptionSelected: { backgroundColor: colors.text },
-  planLabel: { fontFamily: fonts.bold, fontSize: 15, color: colors.text },
-  planLabelSelected: { color: '#000' },
-  planDesc: { fontFamily: fonts.regular, fontSize: 12.5, color: colors.textDim, marginTop: 3 },
-  planDescSelected: { color: '#48484a' },
-  saveBadge: { backgroundColor: colors.green, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 9 },
-  saveBadgeText: { fontFamily: fonts.extraBold, fontSize: 10, color: colors.greenText },
+  busy: { paddingVertical: 18, alignItems: 'center' },
   fine: { fontFamily: fonts.regular, fontSize: 11.5, color: colors.textDimmer, textAlign: 'center', lineHeight: 17, marginTop: 12 },
+  finelink: { color: colors.textDim, textDecorationLine: 'underline' },
   linkRow: { alignItems: 'center', marginTop: 16 },
   link: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.textDim, textDecorationLine: 'underline' },
 });

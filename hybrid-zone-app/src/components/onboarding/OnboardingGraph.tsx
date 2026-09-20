@@ -47,7 +47,10 @@ const RUN_CHECKPOINTS: [number, number][] = [
   [344, 50],
 ];
 
+// Called from inside useAnimatedProps below (UI thread), so it must be a
+// worklet — a plain function there throws and aborts the whole app.
 function pointAlongRun(t: number): { x: number; y: number } {
+  'worklet';
   const segs = RUN_CHECKPOINTS.length - 1;
   const clamped = Math.min(Math.max(t, 0), 1) * segs;
   const i = Math.min(Math.floor(clamped), segs - 1);
