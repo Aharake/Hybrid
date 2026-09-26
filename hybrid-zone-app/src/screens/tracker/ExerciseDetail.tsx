@@ -4,8 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TrackerTabBar } from '@/components/tracker/TrackerTabBar';
-import { AddSetSheet } from '@/components/tracker/AddSetSheet';
-import { TrChevLeftIcon, TrPlusIcon } from '@/icons';
+import { TrChevLeftIcon } from '@/icons';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { buildExerciseHistory, buildExerciseGraph, build1RMGraph, HistorySession } from '@/engine/exerciseHistory';
 import { clockTime } from '@/engine/dates';
@@ -20,7 +19,7 @@ const TABS: ['sets' | 'analyze' | '1rm', string][] = [
 
 export function ExerciseDetail() {
   const navigation = useNavigation();
-  const { viewedExerciseId, findExerciseById, exerciseDetailTab, selectExerciseTab, openExercise, unitSystem, workoutLogs, sets } = useTrackerStore();
+  const { viewedExerciseId, findExerciseById, exerciseDetailTab, selectExerciseTab, unitSystem, workoutLogs, sets } = useTrackerStore();
 
   const ex = viewedExerciseId ? findExerciseById(viewedExerciseId) : null;
 
@@ -81,7 +80,7 @@ export function ExerciseDetail() {
         {history.length === 0 && !today ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No history yet</Text>
-            <Text style={styles.emptyText}>Log your first sets for {ex.name} with the + button and your history, progress graph and estimated 1RM will build up here.</Text>
+            <Text style={styles.emptyText}>Log {ex.name} in a workout and your history, progress graph and estimated 1RM will build up here.</Text>
           </View>
         ) : (
           <>
@@ -102,17 +101,7 @@ export function ExerciseDetail() {
         )}
       </ScrollView>
 
-      <Pressable style={styles.fabLog} onPress={() => openExercise(ex.id)}>
-        <TrPlusIcon size={16} color={colors.bg} />
-      </Pressable>
-      <View style={styles.footer}>
-        <Pressable style={styles.primaryPill} onPress={() => openExercise(ex.id)}>
-          <Text style={styles.primaryPillText}>Log Today's Workout</Text>
-        </Pressable>
-      </View>
       <TrackerTabBar active="StrengthTab" />
-
-      <AddSetSheet />
     </SafeAreaView>
   );
 }
@@ -230,7 +219,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 18 },
   iconBtnRound: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 130, gap: 16 },
+  scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 110, gap: 16 },
   kicker: { fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase', color: colors.accent200, fontFamily: fonts.regular },
   h1: { fontFamily: fonts.medium, fontSize: 25, color: colors.text, letterSpacing: -0.2, marginTop: 2 },
   segPill: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 999, padding: 4 },
@@ -264,8 +253,4 @@ const styles = StyleSheet.create({
   graphChange: { fontFamily: fonts.semiBold, fontSize: 14 },
   graphLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
   graphLabel: { flex: 1, fontSize: 9.5, color: colors.neutral500, textAlign: 'center' },
-  fabLog: { position: 'absolute', right: 20, bottom: 148, width: 52, height: 52, borderRadius: 26, backgroundColor: colors.text, alignItems: 'center', justifyContent: 'center', zIndex: 5 },
-  footer: { paddingHorizontal: 20, paddingBottom: 14 },
-  primaryPill: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, borderRadius: 999, paddingVertical: 15 },
-  primaryPillText: { fontFamily: fonts.medium, fontSize: 14.5, color: colors.bg },
 });

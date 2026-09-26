@@ -10,22 +10,22 @@ import { TrackerTabBar } from '@/components/tracker/TrackerTabBar';
 import { AddSetSheet } from '@/components/tracker/AddSetSheet';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
 import { DAY_FULL_MAP } from '@/engine/calendar';
-import { useTrackerStore, OVERVIEW_METRICS, SessionKey } from '@/store/trackerStore';
+import { useTrackerStore, sortedMetrics, SessionKey } from '@/store/trackerStore';
 import { useMetrics } from '@/hooks/useStats';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function StrengthTab() {
   const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
-  const { sessions, viewDay, isViewingToday, sets, enabled, setOverviewContext, setActiveSessionKey, openProgramEditor } = useTrackerStore();
+  const { sessions, viewDay, isViewingToday, sets, enabled, order, setOverviewContext, setActiveSessionKey, openProgramEditor } = useTrackerStore();
 
   const sessionKeys = Object.keys(sessions) as SessionKey[];
   const viewDayFull = DAY_FULL_MAP[viewDay];
   const viewSessionKey = sessionKeys.find((key) => sessions[key].day === viewDayFull) || null;
   const viewExercises = viewSessionKey ? sessions[viewSessionKey].exercises : [];
-  const doneCount = viewExercises.filter((ex) => (sets[ex.id] || []).length > 0).length;
+  const doneCount = viewExercises.filter((ex) => (sets[ex.id] || []).some((r) => r.done)).length;
 
   const metrics = useMetrics();
-  const strengthMetrics = OVERVIEW_METRICS.strength.filter((m) => enabled.strength[m.id]);
+  const strengthMetrics = sortedMetrics('strength', order.strength).filter((m) => enabled.strength[m.id]);
 
   const openSession = (key: SessionKey) => {
     setActiveSessionKey(key);
@@ -54,7 +54,7 @@ export function StrengthTab() {
             {strengthMetrics.map((m) => {
               const r = metrics.strength[m.id];
               const value = m.id === 'done' ? `${doneCount}/${viewExercises.length}` : `${r.value}${r.unit ? ` ${r.unit}` : ''}`;
-              return <MetricTile key={m.id} variant="strength" label={r.label ?? m.label} value={value} />;
+              return <MetricTile key={m.id} variant="strength" label={r.label ?? m.label} value={value} widthPct={31} />;
             })}
           </View>
         </View>
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 118, gap: 22 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
   link: { fontSize: 12, color: colors.accent200, fontFamily: fonts.regular },
-  statRow: { flexDirection: 'row', gap: 8 },
+  statRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, // wraps: with many tiles on they used to squeeze into one row and overlap
   restBlock: { backgroundColor: colors.surface, borderRadius: 26, paddingVertical: 16, paddingHorizontal: 18 },
   restKicker: { fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase', color: colors.accent200, marginBottom: 3, fontFamily: fonts.regular },
   restTitle: { fontFamily: fonts.semiBold, fontSize: 16, color: colors.text },

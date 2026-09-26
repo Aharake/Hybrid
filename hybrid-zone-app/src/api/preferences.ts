@@ -6,6 +6,7 @@ export interface AppSettings {
   restDuration?: number;
   runType?: 'open' | 'distance' | 'interval';
   distanceGoal?: number;
+  metricOrder?: Record<string, string[]>;
 }
 
 export interface PreferencesPayload {

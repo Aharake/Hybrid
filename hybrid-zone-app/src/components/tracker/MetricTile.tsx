@@ -49,11 +49,19 @@ export function MetricTile({ icon, label, value, unit, big, bars, variant = 'car
         <Text style={styles.lbl}>{label}</Text>
       </View>
       {big && bars ? (
-        <View style={styles.bars}>
-          {bars.map((h, i) => (
-            <View key={i} style={[styles.bar, { height: `${h}%` as ViewStyle['height'] }]} />
-          ))}
-        </View>
+        <>
+          {!!value && (
+            <Text style={styles.val}>
+              {value}
+              {!!unit && <Text style={styles.unit}> {unit}</Text>}
+            </Text>
+          )}
+          <View style={styles.bars}>
+            {bars.map((h, i) => (
+              <View key={i} style={[styles.bar, { height: `${h}%` as ViewStyle['height'] }]} />
+            ))}
+          </View>
+        </>
       ) : (
         <Text style={styles.val}>
           {value}

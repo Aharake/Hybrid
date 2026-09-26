@@ -3,14 +3,22 @@
 // inside the functions that use them — same reason as Google Sign-In in
 // authStore.ts: they touch native modules that only exist in a dev/production
 // build, so importing them eagerly would crash anywhere else (Expo Go, web).
+//
+// What arrives here is whatever other apps and devices have written into the
+// health store. An Apple Watch does that by itself; other wearables only
+// appear if their own app is set to share with Apple Health / Health Connect.
 import { Platform } from 'react-native';
+import { dayKey, startOfDay, startOfWeekMonday } from './dates';
 
 export interface HealthSnapshot {
   steps: number | null; // today so far
   activeCalories: number | null; // kcal burned through activity, today so far
   sleepMinutes: number | null; // asleep time in the most recent night
-  avgHeartRate: number | null; // bpm, average of the last 24h
-  heartRateBars: number[] | null; // 7 bar heights (0-100) for the Home heart-rate tile
+  weekSteps: number | null; // Monday until now
+  weekActiveCalories: number | null; // Monday until now
+  avgSleepMinutes: number | null; // average night over the last 7 days
+  restingHeartRate: number | null; // bpm: average of the last 7 days' resting estimates
+  heartRateBars: number[] | null; // 7 bar heights (0-100), one per day, of that resting estimate
   updatedAt: number; // ms epoch
 }
 
@@ -36,8 +44,13 @@ const IOS_READ_TYPES = [
   'HKQuantityTypeIdentifierStepCount',
   'HKQuantityTypeIdentifierActiveEnergyBurned',
   'HKQuantityTypeIdentifierHeartRate',
+  'HKQuantityTypeIdentifierRestingHeartRate', // written directly by Apple Watch, WHOOP and Fitbit/Google Health
   'HKCategoryTypeIdentifierSleepAnalysis',
 ] as const;
+
+// Bump when a type is added above: the connected app re-asks once so the new
+// type is covered (iOS only shows the sheet for types it hasn't asked about yet).
+export const HEALTH_PERMISSION_VERSION = '2';
 
 const HC_PERMISSIONS = [
   { accessType: 'read', recordType: 'Steps' },
@@ -47,11 +60,11 @@ const HC_PERMISSIONS = [
 ] as const;
 
 const HOUR = 3600 * 1000;
+const DAY = 24 * HOUR;
+const WEEK_DAYS = 7;
 
 function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return new Date(startOfDay(Date.now()));
 }
 
 // The window "last night's sleep" is looked for in: from 6pm yesterday until
@@ -62,9 +75,11 @@ function sleepWindowStart(): Date {
   return d;
 }
 
+type Span = { start: number; end: number };
+
 // Watch + phone (or two apps) often report the same night twice — summing the
 // raw samples would double it, so merge overlapping spans first.
-function unionMinutes(spans: { start: number; end: number }[]): number {
+function unionMinutes(spans: Span[]): number {
   const sorted = [...spans].filter((s) => s.end > s.start).sort((a, b) => a.start - b.start);
   let total = 0;
   let curStart = -1;
@@ -82,26 +97,65 @@ function unionMinutes(spans: { start: number; end: number }[]): number {
   return Math.round(total / 60000);
 }
 
-// Averages heart-rate points into 7 equal time slices across the window and
-// scales them to bar heights. Returns null when there isn't enough data for
-// the shape to mean anything.
-function heartRateBars(points: { t: number; bpm: number }[], from: number, to: number): number[] | null {
-  if (points.length < 7) return null;
-  const slice = (to - from) / 7;
-  const sums = new Array<number>(7).fill(0);
-  const counts = new Array<number>(7).fill(0);
-  for (const p of points) {
-    const i = Math.min(6, Math.max(0, Math.floor((p.t - from) / slice)));
-    sums[i] += p.bpm;
-    counts[i] += 1;
+// Average time asleep per night. Each span belongs to the day it ended on (the
+// morning you woke up); days with under two hours are ignored so a stray nap
+// or a night the watch wasn't worn doesn't drag the average down.
+function averageNightMinutes(spans: Span[]): number | null {
+  const byDay = new Map<string, Span[]>();
+  for (const s of spans) {
+    const key = dayKey(s.end);
+    byDay.set(key, [...(byDay.get(key) ?? []), s]);
   }
-  const avgs = sums.map((s, i) => (counts[i] ? s / counts[i] : null));
-  const present = avgs.filter((a): a is number => a !== null);
-  if (present.length < 4) return null;
+  const nights = [...byDay.values()].map(unionMinutes).filter((m) => m >= 120);
+  return nights.length ? Math.round(nights.reduce((a, b) => a + b, 0) / nights.length) : null;
+}
+
+// A day's resting heart rate, estimated as the average of its three quietest
+// hours (mostly asleep or sitting still). A plain 24-hour average is dragged up
+// by every walk, workout and coffee, so it says little about fitness. Returns
+// one entry per day for the last `days` days, oldest first; null where there
+// were fewer than three hours of readings.
+function restingByDay(points: { t: number; bpm: number }[], days: number, now: number): (number | null)[] {
+  const hours = new Map<number, { sum: number; n: number }>();
+  for (const p of points) {
+    const h = Math.floor(p.t / HOUR);
+    const e = hours.get(h) ?? { sum: 0, n: 0 };
+    e.sum += p.bpm;
+    e.n += 1;
+    hours.set(h, e);
+  }
+  const today = startOfDay(now);
+  const perDay: number[][] = Array.from({ length: days }, () => []);
+  hours.forEach((e, h) => {
+    const daysAgo = Math.round((today - startOfDay(h * HOUR)) / DAY);
+    const i = days - 1 - daysAgo;
+    if (i >= 0 && i < days) perDay[i].push(e.sum / e.n);
+  });
+  return perDay.map((vals) => {
+    if (vals.length < 3) return null;
+    const quiet = [...vals].sort((a, b) => a - b).slice(0, 3);
+    return Math.round(quiet.reduce((a, b) => a + b, 0) / 3);
+  });
+}
+
+// Prefer a device-reported resting value for a day, else the estimate.
+function mergeResting(reported: (number | null)[] | null, estimated: (number | null)[] | null): (number | null)[] | null {
+  if (!reported && !estimated) return null;
+  return Array.from({ length: WEEK_DAYS }, (_, i) => reported?.[i] ?? estimated?.[i] ?? null);
+}
+
+// Weekly headline number plus per-day bar heights for the Home tile. Null when
+// there isn't enough data for a trend to mean anything.
+function summarizeResting(perDay: (number | null)[]): { value: number; bars: number[] } | null {
+  const present = perDay.filter((v): v is number => v !== null);
+  if (present.length < 2) return null;
   const min = Math.min(...present);
   const max = Math.max(...present);
   const range = Math.max(1, max - min);
-  return avgs.map((a) => (a === null ? 8 : Math.round(20 + ((a - min) / range) * 80)));
+  return {
+    value: Math.round(present.reduce((a, b) => a + b, 0) / present.length),
+    bars: perDay.map((v) => (v === null ? 8 : Math.round(30 + ((v - min) / range) * 70))),
+  };
 }
 
 function average(values: number[]): number | null {
@@ -149,36 +203,64 @@ export async function requestHealthAccess(): Promise<boolean> {
 
 /* ---------------- reading ---------------- */
 
-async function readIos(): Promise<Omit<HealthSnapshot, 'updatedAt'>> {
+type SnapshotData = Omit<HealthSnapshot, 'updatedAt'>;
+
+function finishSnapshot(parts: Omit<SnapshotData, 'restingHeartRate' | 'heartRateBars'>, resting: (number | null)[] | null): SnapshotData {
+  const summary = resting ? summarizeResting(resting) : null;
+  return { ...parts, restingHeartRate: summary?.value ?? null, heartRateBars: summary?.bars ?? null };
+}
+
+async function readIos(): Promise<SnapshotData> {
   const hk = healthKit();
   const now = new Date();
   const dayFilter = { date: { startDate: startOfToday(), endDate: now } };
+  const weekFilter = { date: { startDate: new Date(startOfWeekMonday(now.getTime())), endDate: now } };
 
-  const steps = await safe(async () => {
-    const r = await hk.queryStatisticsForQuantity('HKQuantityTypeIdentifierStepCount', ['cumulativeSum'], { filter: dayFilter, unit: 'count' });
-    return r.sumQuantity?.quantity ?? null;
-  });
-  const activeCalories = await safe(async () => {
-    const r = await hk.queryStatisticsForQuantity('HKQuantityTypeIdentifierActiveEnergyBurned', ['cumulativeSum'], { filter: dayFilter, unit: 'kcal' });
-    return r.sumQuantity?.quantity ?? null;
-  });
-
-  const hrFrom = now.getTime() - 24 * HOUR;
-  const hr = await safe(async () => {
-    const samples = await hk.queryQuantitySamples('HKQuantityTypeIdentifierHeartRate', {
-      limit: 1000,
-      ascending: true,
-      unit: 'count/min',
-      filter: { date: { startDate: new Date(hrFrom), endDate: now } },
+  const sum = (id: 'HKQuantityTypeIdentifierStepCount' | 'HKQuantityTypeIdentifierActiveEnergyBurned', unit: 'count' | 'kcal', filter: typeof dayFilter) =>
+    safe(async () => {
+      const r = await hk.queryStatisticsForQuantity(id, ['cumulativeSum'], { filter, unit } as never);
+      return r.sumQuantity?.quantity ?? null;
     });
-    return samples.map((s) => ({ t: s.startDate.getTime(), bpm: s.quantity }));
+  const steps = await sum('HKQuantityTypeIdentifierStepCount', 'count', dayFilter);
+  const activeCalories = await sum('HKQuantityTypeIdentifierActiveEnergyBurned', 'kcal', dayFilter);
+  const weekSteps = await sum('HKQuantityTypeIdentifierStepCount', 'count', weekFilter);
+  const weekCalories = await sum('HKQuantityTypeIdentifierActiveEnergyBurned', 'kcal', weekFilter);
+
+  // Hourly average heart rate over the last 7 days (one cheap query rather than
+  // pulling every sample), reduced to a resting estimate per day.
+  const hrFrom = new Date(startOfToday().getTime() - (WEEK_DAYS - 1) * DAY);
+  const hourly = await safe(async () => {
+    const rows = await hk.queryStatisticsCollectionForQuantity('HKQuantityTypeIdentifierHeartRate', ['discreteAverage'], hrFrom, { hour: 1 }, {
+      filter: { date: { startDate: hrFrom, endDate: now } },
+      unit: 'count/min',
+    });
+    return rows.flatMap((r) => (r.startDate && r.averageQuantity ? [{ t: r.startDate.getTime(), bpm: r.averageQuantity.quantity }] : []));
   });
 
-  const sleepMinutes = await safe(async () => {
+  // Devices that measure resting heart rate themselves (Apple Watch, WHOOP,
+  // Fitbit via Google Health) write it as its own value, which beats estimating
+  // it from raw readings. Sparse writers like WHOOP send too few raw readings
+  // for the estimate to work at all.
+  const restingDaily = await safe(async () => {
+    const rows = await hk.queryStatisticsCollectionForQuantity('HKQuantityTypeIdentifierRestingHeartRate', ['discreteAverage'], hrFrom, { day: 1 }, {
+      filter: { date: { startDate: hrFrom, endDate: now } },
+      unit: 'count/min',
+    });
+    const out: (number | null)[] = new Array(WEEK_DAYS).fill(null);
+    rows.forEach((r) => {
+      if (!r.startDate || !r.averageQuantity) return;
+      const i = Math.round((startOfDay(r.startDate.getTime()) - hrFrom.getTime()) / DAY);
+      if (i >= 0 && i < WEEK_DAYS) out[i] = Math.round(r.averageQuantity.quantity);
+    });
+    return out;
+  });
+
+  // Sleep: last night, plus every night this week for the average.
+  const sleepSpans = await safe(async () => {
     const samples = await hk.queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', {
       limit: -1,
       ascending: true,
-      filter: { date: { startDate: sleepWindowStart(), endDate: now } },
+      filter: { date: { startDate: new Date(sleepWindowStart().getTime() - (WEEK_DAYS - 1) * DAY), endDate: now } },
     });
     // Asleep values only (unspecified/core/deep/REM); skip "in bed" and "awake".
     const asleep = new Set<number>([
@@ -187,53 +269,59 @@ async function readIos(): Promise<Omit<HealthSnapshot, 'updatedAt'>> {
       hk.CategoryValueSleepAnalysis.asleepDeep,
       hk.CategoryValueSleepAnalysis.asleepREM,
     ]);
-    const mins = unionMinutes(samples.filter((s) => asleep.has(Number(s.value))).map((s) => ({ start: s.startDate.getTime(), end: s.endDate.getTime() })));
-    return mins > 0 ? mins : null;
+    return samples.filter((s) => asleep.has(Number(s.value))).map((s) => ({ start: s.startDate.getTime(), end: s.endDate.getTime() }));
   });
+  const lastNight = sleepSpans ? unionMinutes(sleepSpans.filter((s) => s.end >= sleepWindowStart().getTime())) : 0;
 
-  return {
-    steps: steps !== null ? Math.round(steps) : null,
-    activeCalories: activeCalories !== null ? Math.round(activeCalories) : null,
-    sleepMinutes,
-    avgHeartRate: hr ? average(hr.map((p) => p.bpm)) : null,
-    heartRateBars: hr ? heartRateBars(hr, hrFrom, now.getTime()) : null,
-  };
+  return finishSnapshot(
+    {
+      steps: steps !== null ? Math.round(steps) : null,
+      activeCalories: activeCalories !== null ? Math.round(activeCalories) : null,
+      sleepMinutes: lastNight > 0 ? lastNight : null,
+      weekSteps: weekSteps !== null ? Math.round(weekSteps) : null,
+      weekActiveCalories: weekCalories !== null ? Math.round(weekCalories) : null,
+      avgSleepMinutes: sleepSpans ? averageNightMinutes(sleepSpans) : null,
+    },
+    mergeResting(restingDaily, hourly ? restingByDay(hourly, WEEK_DAYS, now.getTime()) : null),
+  );
 }
 
-async function readAndroid(): Promise<Omit<HealthSnapshot, 'updatedAt'>> {
+async function readAndroid(): Promise<SnapshotData> {
   const hc = healthConnect();
   await hc.initialize();
   const now = new Date();
-  const today = { operator: 'between' as const, startTime: startOfToday().toISOString(), endTime: now.toISOString() };
+  const range = (from: number) => ({ operator: 'between' as const, startTime: new Date(from).toISOString(), endTime: now.toISOString() });
+  const today = range(startOfToday().getTime());
+  const week = range(startOfWeekMonday(now.getTime()));
 
   const steps = await safe(async () => (await hc.aggregateRecord({ recordType: 'Steps', timeRangeFilter: today })).COUNT_TOTAL);
   const activeCalories = await safe(async () => (await hc.aggregateRecord({ recordType: 'ActiveCaloriesBurned', timeRangeFilter: today })).ACTIVE_CALORIES_TOTAL.inKilocalories);
+  const weekSteps = await safe(async () => (await hc.aggregateRecord({ recordType: 'Steps', timeRangeFilter: week })).COUNT_TOTAL);
+  const weekCalories = await safe(async () => (await hc.aggregateRecord({ recordType: 'ActiveCaloriesBurned', timeRangeFilter: week })).ACTIVE_CALORIES_TOTAL.inKilocalories);
 
-  const hrFrom = now.getTime() - 24 * HOUR;
+  const hrFrom = startOfToday().getTime() - (WEEK_DAYS - 1) * DAY;
   const hr = await safe(async () => {
-    const { records } = await hc.readRecords('HeartRate', {
-      timeRangeFilter: { operator: 'between', startTime: new Date(hrFrom).toISOString(), endTime: now.toISOString() },
-      ascendingOrder: true,
-    });
+    const { records } = await hc.readRecords('HeartRate', { timeRangeFilter: range(hrFrom), ascendingOrder: true });
     return records.flatMap((r) => r.samples.map((s) => ({ t: new Date(s.time).getTime(), bpm: s.beatsPerMinute })));
   });
 
-  const sleepMinutes = await safe(async () => {
-    const { records } = await hc.readRecords('SleepSession', {
-      timeRangeFilter: { operator: 'between', startTime: sleepWindowStart().toISOString(), endTime: now.toISOString() },
-      ascendingOrder: true,
-    });
-    const mins = unionMinutes(records.map((r) => ({ start: new Date(r.startTime).getTime(), end: new Date(r.endTime).getTime() })));
-    return mins > 0 ? mins : null;
+  const sleepSpans = await safe(async () => {
+    const { records } = await hc.readRecords('SleepSession', { timeRangeFilter: range(sleepWindowStart().getTime() - (WEEK_DAYS - 1) * DAY), ascendingOrder: true });
+    return records.map((r) => ({ start: new Date(r.startTime).getTime(), end: new Date(r.endTime).getTime() }));
   });
+  const lastNight = sleepSpans ? unionMinutes(sleepSpans.filter((s) => s.end >= sleepWindowStart().getTime())) : 0;
 
-  return {
-    steps: steps !== null ? Math.round(steps) : null,
-    activeCalories: activeCalories !== null ? Math.round(activeCalories) : null,
-    sleepMinutes,
-    avgHeartRate: hr ? average(hr.map((p) => p.bpm)) : null,
-    heartRateBars: hr ? heartRateBars(hr, hrFrom, now.getTime()) : null,
-  };
+  return finishSnapshot(
+    {
+      steps: steps !== null ? Math.round(steps) : null,
+      activeCalories: activeCalories !== null ? Math.round(activeCalories) : null,
+      sleepMinutes: lastNight > 0 ? lastNight : null,
+      weekSteps: weekSteps !== null ? Math.round(weekSteps) : null,
+      weekActiveCalories: weekCalories !== null ? Math.round(weekCalories) : null,
+      avgSleepMinutes: sleepSpans ? averageNightMinutes(sleepSpans) : null,
+    },
+    hr ? restingByDay(hr, WEEK_DAYS, now.getTime()) : null,
+  );
 }
 
 export async function readHealthSnapshot(): Promise<HealthSnapshot> {

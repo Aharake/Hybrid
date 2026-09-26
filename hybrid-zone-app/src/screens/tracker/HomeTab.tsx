@@ -13,7 +13,7 @@ import { MetricIcon } from '@/components/tracker/iconMap';
 import { TrHistoryIcon, TrSlidersIcon } from '@/icons';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
 import { DAY_FULL_MAP } from '@/engine/calendar';
-import { useTrackerStore, OVERVIEW_METRICS, ACTIVITY_ICONS } from '@/store/trackerStore';
+import { useTrackerStore, sortedMetrics, ACTIVITY_ICONS } from '@/store/trackerStore';
 import { fmtDistance } from '@/engine/units';
 import { activityMeta, activityWhen } from '@/engine/records';
 import { useMetrics } from '@/hooks/useStats';
@@ -21,7 +21,7 @@ import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function HomeTab() {
   const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
-  const { sessions, runSessions, viewDay, isViewingToday, enabled, setOverviewContext, openProgramEditor, unitSystem, activities, getActivityRoute, openActivityDetail, setActiveSessionKey } =
+  const { sessions, runSessions, viewDay, isViewingToday, enabled, order, setOverviewContext, openProgramEditor, unitSystem, activities, getActivityRoute, openActivityDetail, setActiveSessionKey } =
     useTrackerStore();
 
   const sessionKeys = Object.keys(sessions) as (keyof typeof sessions)[];
@@ -52,7 +52,7 @@ export function HomeTab() {
   const goToRunning = () => navigation.reset({ index: 0, routes: [{ name: 'RunningTab' }] });
 
   const metrics = useMetrics();
-  const homeMetrics = OVERVIEW_METRICS.home.filter((m) => enabled.home[m.id]);
+  const homeMetrics = sortedMetrics('home', order.home).filter((m) => enabled.home[m.id]);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

@@ -5,7 +5,7 @@
 // value.
 import type { HealthSnapshot } from './health';
 import { DAY_LABELS, DayLabel, FULL_TO_DAY_LABEL } from './calendar';
-import { dayKey, DAY_MS, startOfDay, startOfWeekMonday } from './dates';
+import { dayKey, DAY_MS, daysBetween, startOfDay, startOfWeekMonday } from './dates';
 import { groupOfExercise } from './exerciseLibrary';
 import { elevationGainM, routeHasAltitude } from './gps';
 import { ActivityItem, RunSessionPlan, Session, WorkoutLogRecord } from './records';
@@ -78,6 +78,12 @@ function fmtInt(n: number): string {
   return Math.round(n).toLocaleString('en-US');
 }
 
+// 48200 → "48.2k" so a weekly total still fits a small tile.
+function fmtCompact(n: number): string {
+  if (n < 10_000) return fmtInt(n);
+  return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+}
+
 function runsOf(activities: ActivityItem[]): ActivityItem[] {
   return activities.filter((a) => a.type === 'running' && a.runStats);
 }
@@ -136,7 +142,12 @@ export function computeRings(input: StatsInput, weekOffset: number): RingValues 
   const parts: number[] = [];
   if (planned.strength > 0) parts.push(Math.min(1, inWeek.filter((a) => a.type === 'strength').length / planned.strength));
   if (planned.runs > 0) parts.push(Math.min(1, inWeek.filter((a) => a.type === 'running').length / planned.runs));
-  if (weekOffset === 0 && health?.steps != null) parts.push(Math.min(1, health.steps / STEP_GOAL));
+  // Steps count against the daily goal for every day of the week so far, so
+  // this stays a weekly measure like the workouts and runs above.
+  if (weekOffset === 0 && health?.weekSteps != null) {
+    const daysSoFar = Math.max(1, daysBetween(start, now) + 1);
+    parts.push(Math.min(1, health.weekSteps / (STEP_GOAL * daysSoFar)));
+  }
   const goal = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
 
   // Consistency: scheduled sessions done ON their scheduled day.
@@ -287,13 +298,13 @@ export function computeMetrics(input: StatsInput): MetricBook {
   const plannedTotal = planned.strength + planned.runs;
 
   const home: Record<string, MetricResult> = {
-    burn: health?.activeCalories != null ? { value: fmtInt(health.activeCalories), unit: 'kcal' } : NONE,
+    burn: health?.weekActiveCalories != null ? { value: fmtCompact(health.weekActiveCalories), unit: 'kcal' } : NONE,
     active: todayMinutes > 0 ? { value: String(Math.round(todayMinutes)), unit: 'min' } : { value: '0', unit: 'min' },
     done: plannedTotal > 0 ? { value: String(doneThisWeek), unit: `/${plannedTotal}` } : { value: String(doneThisWeek), unit: 'this wk' },
-    heartrate: health?.heartRateBars ? { value: health.avgHeartRate != null ? String(health.avgHeartRate) : '', unit: 'bpm', bars: health.heartRateBars } : NONE,
+    heartrate: health?.heartRateBars ? { value: health.restingHeartRate != null ? String(health.restingHeartRate) : '', unit: 'bpm', bars: health.heartRateBars } : NONE,
     trend: trendBars ? { value: '', unit: '', bars: trendBars } : NONE,
-    steps: health?.steps != null ? { value: fmtInt(health.steps), unit: '' } : NONE,
-    sleep: health?.sleepMinutes != null ? { value: `${Math.floor(health.sleepMinutes / 60)}h ${health.sleepMinutes % 60}m`, unit: '' } : NONE,
+    steps: health?.weekSteps != null ? { value: fmtCompact(health.weekSteps), unit: '' } : NONE,
+    sleep: health?.avgSleepMinutes != null ? { value: `${Math.floor(health.avgSleepMinutes / 60)}h ${health.avgSleepMinutes % 60}m`, unit: 'avg' } : NONE,
     workouts_month: { value: String(activities.filter((a) => a.date >= monthStart).length), unit: 'this mo' },
     longest_streak: { value: String(anyStreaks.longest), unit: anyStreaks.longest === 1 ? 'day' : 'days' },
     active_days: { value: String(activeDaySet(thisWeek).size), unit: '/7' },

@@ -13,7 +13,7 @@ import { useHealthStore } from '@/store/healthStore';
 import { healthSourceName, readWorkoutHealthStats, WorkoutHealthStats } from '@/engine/health';
 import { normalizeRouteToUnitSquare, type RoutePoint } from '@/engine/gps';
 import type { WorkoutSummaryData } from '@/engine/records';
-import { distanceUnitLabel, distanceValueOnly, fmtPaceFromSecPerKm, UnitSystem, weightUnitLabel, weightValueAuto } from '@/engine/units';
+import { distanceUnitLabel, distanceValueOnly, fmtPaceFromSecPerKm, fmtWeightAuto, UnitSystem, weightUnitLabel, weightValueAuto } from '@/engine/units';
 
 const GREEN = '#39ff88';
 const RUN_BLUE = '#4da3ff';
@@ -302,11 +302,12 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
   const insets = useSafeAreaInsets();
   const unitSystem = useTrackerStore((s) => s.unitSystem);
   const close = useTrackerStore((s) => s.closeWorkoutSummary);
+  const startInShare = useTrackerStore((s) => s.summaryStartInShare);
   const { supported, connected, connect } = useHealthStore();
 
   const [health, setHealth] = useState<WorkoutHealthStats | null>(null);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<'summary' | 'share'>('summary');
+  const [mode, setMode] = useState<'summary' | 'share'>(startInShare ? 'share' : 'summary');
   const [design, setDesign] = useState<Design>('poster');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [previewW, setPreviewW] = useState(0);
@@ -424,6 +425,18 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
 
   /* ---- summary mode ---- */
   const hr = health?.heartRate ?? null;
+  const renderTile = (t: Item) => (
+    <View key={t.label} style={styles.tile}>
+      <View style={styles.tileHead}>
+        {tileIcon(t.label)}
+        <Text style={styles.tileLbl}>{t.label.toUpperCase()}</Text>
+      </View>
+      <Text style={[styles.tileVal, t.value === '—' && { color: colors.neutral400 }]}>
+        {t.value}
+        {t.unit ? <Text style={styles.tileUnit}> {t.unit}</Text> : null}
+      </Text>
+    </View>
+  );
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }]}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -434,28 +447,53 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
         <Text style={styles.title}>{summary.title}</Text>
         <Text style={styles.when}>{fmtWhen(summary.endedAt)}</Text>
 
-        <View style={[styles.heroCard, { borderColor: accent }]}>
-          <Text style={styles.heroLbl}>{primary.label.toUpperCase()}</Text>
-          <Text style={styles.heroVal}>
-            {primary.value}
-            <Text style={styles.heroUnit}> {primary.unit}</Text>
-          </Text>
-        </View>
-
-        <View style={styles.grid}>
-          {tiles.map((t) => (
-            <View key={t.label} style={styles.tile}>
-              <View style={styles.tileHead}>
-                {tileIcon(t.label)}
-                <Text style={styles.tileLbl}>{t.label.toUpperCase()}</Text>
-              </View>
-              <Text style={[styles.tileVal, t.value === '—' && { color: colors.neutral400 }]}>
-                {t.value}
-                {t.unit ? <Text style={styles.tileUnit}> {t.unit}</Text> : null}
+        {isRun ? (
+          <>
+            <View style={[styles.heroCard, { borderColor: accent }]}>
+              <Text style={styles.heroLbl}>{primary.label.toUpperCase()}</Text>
+              <Text style={styles.heroVal}>
+                {primary.value}
+                <Text style={styles.heroUnit}> {primary.unit}</Text>
               </Text>
             </View>
-          ))}
-        </View>
+            <View style={styles.grid}>{tiles.map(renderTile)}</View>
+          </>
+        ) : (
+          <>
+            <View style={styles.statStrip}>
+              {tiles.slice(0, 3).map((t) => (
+                <View key={t.label} style={styles.statStripItem}>
+                  <Text style={styles.statStripLbl}>{t.label.toUpperCase()}</Text>
+                  <Text style={styles.statStripVal}>{t.value}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.volumeRow}>
+              <Text style={styles.volumeLbl}>Volume lifted</Text>
+              <Text style={styles.volumeVal}>
+                {primary.value} {primary.unit}
+              </Text>
+            </View>
+            {summary.exerciseSets.map((ex) => (
+              <View key={ex.name} style={styles.exCard}>
+                <Text style={styles.exName}>{ex.name}</Text>
+                <View style={styles.exRow}>
+                  <Text style={[styles.exHeadText, { width: 30 }]}>SET</Text>
+                  <Text style={[styles.exHeadText, { flex: 1 }]}>WEIGHT</Text>
+                  <Text style={[styles.exHeadText, { flex: 1 }]}>REPS</Text>
+                </View>
+                {ex.sets.map((st, i) => (
+                  <View key={i} style={styles.exRow}>
+                    <Text style={[styles.exCell, { width: 30, color: colors.neutral500 }]}>{i + 1}</Text>
+                    <Text style={[styles.exCell, { flex: 1 }]}>{fmtWeightAuto(st.weight, unitSystem)}</Text>
+                    <Text style={[styles.exCell, { flex: 1 }]}>{st.reps}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+            <View style={styles.grid}>{tiles.slice(3).map(renderTile)}</View>
+          </>
+        )}
 
         {hr && (
           <View style={styles.card}>
@@ -523,6 +561,18 @@ const styles = StyleSheet.create({
   heroLbl: { fontFamily: fonts.semiBold, fontSize: 11, letterSpacing: 1, color: colors.neutral500 },
   heroVal: { fontFamily: fonts.extraBold, fontSize: 56, color: colors.text, letterSpacing: -1.5, marginTop: 4 },
   heroUnit: { fontFamily: fonts.semiBold, fontSize: 20, color: colors.neutral500 },
+  statStrip: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.divider },
+  statStripItem: { alignItems: 'center', gap: 6 },
+  statStripLbl: { fontFamily: fonts.semiBold, fontSize: 10.5, letterSpacing: 0.8, color: colors.accent200 },
+  statStripVal: { fontFamily: fonts.semiBold, fontSize: 24, color: colors.text },
+  volumeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 18 },
+  volumeLbl: { fontFamily: fonts.medium, fontSize: 13.5, color: colors.neutral500 },
+  volumeVal: { fontFamily: fonts.semiBold, fontSize: 17, color: colors.text },
+  exCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 16, gap: 8 },
+  exName: { fontFamily: fonts.semiBold, fontSize: 14.5, color: colors.text, marginBottom: 2 },
+  exRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  exHeadText: { fontFamily: fonts.semiBold, fontSize: 9.5, letterSpacing: 0.6, color: colors.neutral500 },
+  exCell: { fontFamily: fonts.medium, fontSize: 14, color: colors.text },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: { width: '48.5%', backgroundColor: colors.surface, borderRadius: 20, padding: 16, gap: 8 },
   tileHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },

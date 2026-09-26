@@ -118,4 +118,35 @@ export interface WorkoutSummaryData {
   sets: number; // strength only
   exercises: number; // strength only
   volumeKg: number; // strength only: sum of weight × reps
+  exerciseSets: { name: string; sets: { weight: number; reps: number }[] }[]; // strength only, in workout order
+}
+
+// Groups flat logged sets by exercise, keeping the order they were first done in.
+export function groupSetsByExercise(rows: { exerciseName: string; reps: number; weight: number }[]): WorkoutSummaryData['exerciseSets'] {
+  const byName = new Map<string, { weight: number; reps: number }[]>();
+  rows.forEach((r) => byName.set(r.exerciseName, [...(byName.get(r.exerciseName) ?? []), { weight: r.weight, reps: r.reps }]));
+  return [...byName.entries()].map(([name, sets]) => ({ name, sets }));
+}
+
+// Rebuilds the summary for a saved strength workout, so an old one can be shared too.
+export function summaryFromStrengthActivity(a: ActivityItem): WorkoutSummaryData | null {
+  const ss = a.strengthStats;
+  if (!ss) return null;
+  const durationSec = (ss.duration ?? 0) * 60;
+  const all = ss.exercises.flatMap((e) => e.sets);
+  return {
+    kind: 'strength',
+    title: a.title,
+    startedAt: a.date - durationSec * 1000,
+    endedAt: a.date,
+    durationSec,
+    distanceKm: null,
+    route: null,
+    maxSpeedKmh: null,
+    estCalories: null,
+    sets: all.length,
+    exercises: ss.exercises.length,
+    volumeKg: all.reduce((n, s) => n + s.weight * s.reps, 0),
+    exerciseSets: ss.exercises.map((e) => ({ name: e.name, sets: e.sets })),
+  };
 }

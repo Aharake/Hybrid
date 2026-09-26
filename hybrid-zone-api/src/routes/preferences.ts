@@ -11,6 +11,8 @@ const bodySchema = z.object({
       restDuration: z.number().int().min(15).max(600).optional(),
       runType: z.enum(['open', 'distance', 'interval']).optional(),
       distanceGoal: z.number().min(1).max(100).optional(),
+      // Order of the overview tiles per page, e.g. { home: ['burn', 'steps'] }.
+      metricOrder: z.record(z.string(), z.array(z.string().max(40)).max(40)).optional(),
     })
     .optional(),
 });

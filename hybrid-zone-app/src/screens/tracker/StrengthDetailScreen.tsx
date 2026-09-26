@@ -1,15 +1,16 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { useTrackerStore } from '@/store/trackerStore';
 import { fmtWeightAuto } from '@/engine/units';
-import { activityWhen } from '@/engine/records';
+import { activityWhen, summaryFromStrengthActivity } from '@/engine/records';
+import { TrShareIcon } from '@/icons';
 import { DeleteActivityButton } from '@/components/tracker/DeleteActivityButton';
 import { DetailScreenHeader } from '@/components/tracker/DetailScreenHeader';
 
 export function StrengthDetailScreen() {
-  const { activities, activeActivityIndex, unitSystem } = useTrackerStore();
+  const { activities, activeActivityIndex, unitSystem, openWorkoutSummary } = useTrackerStore();
   const a = activeActivityIndex !== null ? activities[activeActivityIndex] : null;
 
   if (!a || !a.strengthStats) return <SafeAreaView style={styles.screen} edges={['top']} />;
@@ -18,7 +19,24 @@ export function StrengthDetailScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <DetailScreenHeader title={a.title} right={<DeleteActivityButton />} />
+      <DetailScreenHeader
+        title={a.title}
+        right={
+          <View style={styles.headerActions}>
+            <Pressable
+              style={styles.shareBtn}
+              hitSlop={6}
+              onPress={() => {
+                const summary = summaryFromStrengthActivity(a);
+                if (summary) openWorkoutSummary(summary, true);
+              }}
+            >
+              <TrShareIcon size={15} color={colors.text} />
+            </Pressable>
+            <DeleteActivityButton />
+          </View>
+        }
+      />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Text style={styles.time}>{activityWhen(a)}</Text>
         <View style={styles.statsRow}>
@@ -61,6 +79,8 @@ function Stat({ label, val }: { label: string; val: string }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  shareBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   scroll: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 30, gap: 16 },
   time: { textAlign: 'center', fontSize: 11.5, color: colors.neutral500, fontFamily: fonts.regular },
   statsRow: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 6, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.divider },

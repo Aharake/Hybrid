@@ -4,6 +4,7 @@ import { RunTrackerOverlay } from './RunTrackerOverlay';
 import { RunSetupSheet } from './RunSetupSheet';
 import { WorkoutSummaryOverlay } from './WorkoutSummaryOverlay';
 import { HealthConnectPrompt } from './HealthConnectPrompt';
+import { AchievementPopup } from './AchievementPopup';
 
 // The "+" button lives on every tab-bar screen and can start a run or a
 // workout from anywhere, so these are mounted once above the whole stack —
@@ -16,6 +17,7 @@ export function TrackerOverlays() {
       <RunSetupSheet />
       <WorkoutSummaryOverlay />
       <HealthConnectPrompt />
+      <AchievementPopup />
     </>
   );
 }

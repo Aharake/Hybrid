@@ -1,51 +1,57 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CalendarWeekWidget } from '@/components/tracker/CalendarWeekWidget';
 import { MetricTile } from '@/components/tracker/MetricTile';
 import { TrackerTabBar } from '@/components/tracker/TrackerTabBar';
 import { TrPlayIcon, TrRunSmallIcon, TrSlidersIcon } from '@/icons';
 import { colors, fonts, typography } from '@/theme/trackerTokens';
-import { DAY_FULL_MAP, DAY_LABELS } from '@/engine/calendar';
-import { daysBetween, startOfWeekMonday } from '@/engine/dates';
-import { useTrackerStore, OVERVIEW_METRICS } from '@/store/trackerStore';
-import { fmtDistance, fmtPaceFromSecPerKm } from '@/engine/units';
+import { DAY_FULL_MAP } from '@/engine/calendar';
+import { addDays, shortDate, startOfWeekMonday } from '@/engine/dates';
+import { useTrackerStore, sortedMetrics } from '@/store/trackerStore';
+import { fmtDistance, fmtPaceFromSecPerKm, UnitSystem } from '@/engine/units';
 import { activityWhen } from '@/engine/records';
 import { useMetrics } from '@/hooks/useStats';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 const RUN_LIGHT = '#4da3ff';
-const BAR_MAX_H = 64;
+const WEEKS_SHOWN = 6;
+const SNAP_BAR_H = 84;
 
 export function RunningTab() {
   const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
-  const { runSessions, viewDay, isViewingToday, enabled, setOverviewContext, openRunTracker, openRunSetup, unitSystem, activities, openActivityDetail } =
+  const { runSessions, viewDay, isViewingToday, enabled, order, setOverviewContext, openRunTracker, openRunSetup, unitSystem, activities, openActivityDetail } =
     useTrackerStore();
 
   const viewRun = runSessions[viewDay] || null;
   const dayLabel = isViewingToday() ? 'Today' : DAY_FULL_MAP[viewDay];
   const today = isViewingToday();
   const metrics = useMetrics();
-  const runningMetrics = OVERVIEW_METRICS.running.filter((m) => enabled.running[m.id]);
+  const runningMetrics = sortedMetrics('running', order.running).filter((m) => enabled.running[m.id]);
   const recentRuns = activities.filter((a) => a.type === 'running' && a.runStats).slice(0, 4);
 
-  // Distance run on each day of the current week (Mon..Sun), from saved runs.
-  const week = useMemo(() => {
-    const start = startOfWeekMonday(Date.now());
-    const perDay = [0, 0, 0, 0, 0, 0, 0];
-    let runs = 0;
+  // Distance and time for this week and the five before it, from saved runs.
+  const [snapMetric, setSnapMetric] = useState<'distance' | 'time'>('distance');
+  const weeks = useMemo(() => {
+    const thisMonday = startOfWeekMonday(Date.now());
+    const buckets = Array.from({ length: WEEKS_SHOWN }, (_, i) => ({
+      start: addDays(thisMonday, -(WEEKS_SHOWN - 1 - i) * 7),
+      km: 0,
+      min: 0,
+      runs: 0,
+    }));
     activities.forEach((a) => {
       if (a.type !== 'running' || !a.runStats) return;
-      const i = daysBetween(start, a.date);
-      if (i < 0 || i > 6) return;
-      perDay[i] += a.runStats.distance;
-      runs += 1;
+      const b = buckets.find((w) => a.date >= w.start && a.date < addDays(w.start, 7));
+      if (!b) return;
+      b.km += a.runStats.distance;
+      b.min += a.runStats.duration;
+      b.runs += 1;
     });
-    const total = perDay.reduce((n, v) => n + v, 0);
-    return { perDay, runs, total, max: Math.max(0.1, ...perDay), todayIndex: daysBetween(start, Date.now()) };
+    return buckets;
   }, [activities]);
 
   return (
@@ -62,10 +68,6 @@ export function RunningTab() {
               </LinearGradient>
             </Defs>
             <Rect x="0" y="0" width="100%" height="100%" fill="url(#runHeroBg)" />
-          </Svg>
-          <Svg style={styles.heroRoute} width={230} height={120} viewBox="0 0 230 120">
-            <Path d="M4 100 C 34 92, 40 56, 72 62 S 110 104, 138 78 S 168 22, 226 14" fill="none" stroke="#fff" strokeOpacity={0.18} strokeWidth={5} strokeLinecap="round" />
-            <Path d="M4 100 C 34 92, 40 56, 72 62 S 110 104, 138 78 S 168 22, 226 14" fill="none" stroke="#fff" strokeOpacity={0.5} strokeWidth={1.5} strokeLinecap="round" strokeDasharray="2 7" />
           </Svg>
           <View style={styles.heroBody}>
             <View style={styles.heroPill}>
@@ -102,41 +104,7 @@ export function RunningTab() {
           </View>
         </View>
 
-        <View style={styles.weekCard}>
-          <View style={styles.weekHead}>
-            <View>
-              <Text style={styles.weekKicker}>THIS WEEK</Text>
-              <Text style={styles.weekTotal}>{fmtDistance(week.total, unitSystem)}</Text>
-            </View>
-            <Text style={styles.weekRuns}>{week.runs === 1 ? '1 run' : `${week.runs} runs`}</Text>
-          </View>
-          <View style={styles.weekBars}>
-            {week.perDay.map((v, i) => {
-              const planned = Boolean(runSessions[DAY_LABELS[i]]);
-              const isToday = i === week.todayIndex;
-              return (
-                <View key={i} style={styles.weekCol}>
-                  <View style={styles.weekBarTrack}>
-                    <View
-                      style={[
-                        styles.weekBar,
-                        {
-                          height: v > 0 ? Math.max(8, (v / week.max) * BAR_MAX_H) : planned ? 24 : 6,
-                          backgroundColor: v > 0 ? RUN_LIGHT : planned ? 'transparent' : colors.neutral300,
-                          borderWidth: v === 0 && planned ? 1.5 : 0,
-                          borderColor: RUN_LIGHT,
-                          borderStyle: 'dashed',
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={[styles.weekDay, isToday && styles.weekDayToday]}>{DAY_LABELS[i][0]}</Text>
-                </View>
-              );
-            })}
-          </View>
-          <Text style={styles.weekLegend}>Dashed outline = a run planned for that day</Text>
-        </View>
+        <WeeklySnapshot weeks={weeks} metric={snapMetric} onMetric={setSnapMetric} unitSystem={unitSystem} />
 
         <View>
           <View style={styles.rowBetween}>
@@ -206,6 +174,76 @@ export function RunningTab() {
   );
 }
 
+function fmtMinutes(min: number): string {
+  const m = Math.round(min);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
+interface Week {
+  start: number;
+  km: number;
+  min: number;
+  runs: number;
+}
+
+// This week against the last five, for distance or for time on your feet.
+function WeeklySnapshot({ weeks, metric, onMetric, unitSystem }: { weeks: Week[]; metric: 'distance' | 'time'; onMetric: (m: 'distance' | 'time') => void; unitSystem: UnitSystem }) {
+  const value = (w: Week) => (metric === 'distance' ? w.km : w.min);
+  const current = weeks[weeks.length - 1];
+  const previous = weeks[weeks.length - 2];
+  const now = value(current);
+  const before = value(previous);
+  const max = Math.max(0.01, ...weeks.map(value));
+  const headline = metric === 'distance' ? fmtDistance(now, unitSystem) : fmtMinutes(now);
+
+  let trend: { text: string; up: boolean } | null = null;
+  if (before > 0) {
+    const pct = Math.round(((now - before) / before) * 100);
+    trend = { text: `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct)}% vs last week`, up: pct >= 0 };
+  } else if (now > 0) {
+    trend = { text: 'Nothing logged last week', up: true };
+  }
+
+  return (
+    <View style={styles.snapCard}>
+      <View style={styles.snapHead}>
+        <Text style={styles.snapTitle}>Weekly Snapshot</Text>
+        <View style={styles.snapSeg}>
+          {(['distance', 'time'] as const).map((m) => (
+            <Pressable key={m} style={[styles.snapSegItem, metric === m && styles.snapSegItemActive]} onPress={() => onMetric(m)}>
+              <Text style={[styles.snapSegText, metric === m && styles.snapSegTextActive]}>{m === 'distance' ? 'Distance' : 'Time'}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.snapNumRow}>
+        <Text style={styles.snapNum}>{headline}</Text>
+        {trend && <Text style={[styles.snapTrend, { color: trend.up ? colors.green : colors.neutral500 }]}>{trend.text}</Text>}
+      </View>
+      <Text style={styles.snapSub}>
+        {current.runs === 1 ? '1 run' : `${current.runs} runs`} this week
+      </Text>
+
+      <View style={styles.snapBars}>
+        {weeks.map((w, i) => {
+          const v = value(w);
+          const isNow = i === weeks.length - 1;
+          return (
+            <View key={w.start} style={styles.snapCol}>
+              <View style={styles.snapBarTrack}>
+                <View style={[styles.snapBar, { height: v > 0 ? Math.max(8, (v / max) * SNAP_BAR_H) : 4, backgroundColor: isNow ? RUN_LIGHT : v > 0 ? 'rgba(77,163,255,0.4)' : colors.neutral300 }]} />
+              </View>
+              <Text style={[styles.snapLbl, isNow && styles.snapLblNow]}>{isNow ? 'This wk' : shortDate(w.start)}</Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function HeroStat({ val, lbl }: { val: string; lbl: string }) {
   return (
     <View style={styles.heroStat}>
@@ -221,7 +259,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   scroll: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 118, gap: 22 },
   heroCard: { borderRadius: 28, overflow: 'hidden', backgroundColor: '#0a3a75' },
-  heroRoute: { position: 'absolute', right: -8, top: 10 },
   heroBody: { padding: 20 },
   heroPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10 },
   heroPillDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#5dd67d' },
@@ -235,18 +272,24 @@ const styles = StyleSheet.create({
   heroBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 999, paddingVertical: 15 },
   heroBtnText: { fontFamily: fonts.semiBold, fontSize: 15, color: '#06264d' },
   settingsBtn: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
-  weekCard: { backgroundColor: colors.surface, borderRadius: 24, padding: 18 },
-  weekHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 16 },
-  weekKicker: { fontFamily: fonts.semiBold, fontSize: 10.5, letterSpacing: 0.9, color: colors.neutral500 },
-  weekTotal: { fontFamily: fonts.semiBold, fontSize: 30, color: colors.text, marginTop: 3 },
-  weekRuns: { fontFamily: fonts.medium, fontSize: 13, color: colors.neutral500, marginBottom: 4 },
-  weekBars: { flexDirection: 'row', gap: 8 },
-  weekCol: { flex: 1, alignItems: 'center', gap: 8 },
-  weekBarTrack: { height: BAR_MAX_H, justifyContent: 'flex-end', alignSelf: 'stretch', alignItems: 'center' },
-  weekBar: { width: '70%', borderRadius: 7 },
-  weekDay: { fontFamily: fonts.medium, fontSize: 11.5, color: colors.neutral500 },
-  weekDayToday: { color: colors.text, fontFamily: fonts.bold },
-  weekLegend: { fontFamily: fonts.regular, fontSize: 11, color: colors.neutral500, marginTop: 12 },
+  snapCard: { backgroundColor: colors.surface, borderRadius: 24, padding: 18 },
+  snapHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  snapTitle: { fontFamily: fonts.semiBold, fontSize: 15, color: colors.text },
+  snapSeg: { flexDirection: 'row', backgroundColor: colors.bg, borderRadius: 999, padding: 3 },
+  snapSegItem: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999 },
+  snapSegItemActive: { backgroundColor: colors.text },
+  snapSegText: { fontFamily: fonts.medium, fontSize: 12, color: colors.neutral500 },
+  snapSegTextActive: { color: colors.bg },
+  snapNumRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
+  snapNum: { fontFamily: fonts.semiBold, fontSize: 34, color: colors.text, letterSpacing: -0.5 },
+  snapTrend: { fontFamily: fonts.semiBold, fontSize: 12.5 },
+  snapSub: { fontFamily: fonts.regular, fontSize: 12.5, color: colors.neutral500, marginTop: 2, marginBottom: 18 },
+  snapBars: { flexDirection: 'row', gap: 8 },
+  snapCol: { flex: 1, alignItems: 'center', gap: 8 },
+  snapBarTrack: { height: SNAP_BAR_H, justifyContent: 'flex-end', alignSelf: 'stretch', alignItems: 'center' },
+  snapBar: { width: '72%', borderRadius: 7 },
+  snapLbl: { fontFamily: fonts.medium, fontSize: 10, color: colors.neutral500 },
+  snapLblNow: { color: colors.text, fontFamily: fonts.bold },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
   link: { fontSize: 12, color: colors.accent200, fontFamily: fonts.regular },
   metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

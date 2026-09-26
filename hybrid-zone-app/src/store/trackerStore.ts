@@ -4,6 +4,7 @@
 // hydrateFromBackend) — there is no built-in sample data.
 
 import { create } from 'zustand';
+import * as SecureStore from 'expo-secure-store';
 import type { DayLabel } from '@/engine/calendar';
 import { getTodayShort, DAY_LABELS, DAY_FULL_MAP, FULL_TO_DAY_LABEL, isViewingToday as calendarIsViewingToday } from '@/engine/calendar';
 import { saveWorkoutLog, getWorkoutLogs, deleteWorkoutLog, type WorkoutLogResponse } from '@/api/workoutLogs';
@@ -26,6 +27,7 @@ import {
   SessionKey,
   WorkoutLogRecord,
   WorkoutSummaryData,
+  groupSetsByExercise,
 } from '@/engine/records';
 import { StatsInput, computeDataHighlights } from '@/engine/stats';
 import { activityDaysAgo } from '@/engine/records';
@@ -47,6 +49,7 @@ export interface SetEntry {
   num: number;
   weight: number;
   reps: number;
+  done?: boolean; // checked off: locked in, and the only sets a finished workout saves
 }
 
 // A tile's definition — its numbers are computed live (engine/stats.ts), so
@@ -293,13 +296,13 @@ export const SPLIT_TEMPLATES: Record<string, SplitTemplate> = {
 
 export const OVERVIEW_METRICS: Record<MetricContext, OverviewMetric[]> = {
   home: [
-    { id: 'burn', label: 'Burn', icon: 'burn' },
+    { id: 'burn', label: 'Weekly Burn', icon: 'burn' },
     { id: 'active', label: 'Active', icon: 'active' },
     { id: 'done', label: 'Done', icon: 'done' },
-    { id: 'heartrate', label: 'Heart Rate', icon: 'heartrate', big: true },
+    { id: 'heartrate', label: 'Resting HR', icon: 'heartrate', big: true },
     { id: 'trend', label: 'Weekly Trend', icon: 'trend', big: true },
-    { id: 'steps', label: 'Steps', icon: 'stepsIco' },
-    { id: 'sleep', label: 'Sleep', icon: 'sleep' },
+    { id: 'steps', label: 'Weekly Steps', icon: 'stepsIco' },
+    { id: 'sleep', label: 'Avg Sleep', icon: 'sleep' },
     { id: 'workouts_month', label: 'Workouts', icon: 'done' },
     { id: 'longest_streak', label: 'Longest Streak', icon: 'flameIco' },
     { id: 'active_days', label: 'Active Days', icon: 'active' },
@@ -332,6 +335,32 @@ export const OVERVIEW_DEFAULTS: Record<MetricContext, Record<string, boolean>> =
   strength: { volume: true, logged: true, done: true, prs: false, total_sets: false, avg_duration: false, workout_streak: false, main_lift: false, muscle_groups: false },
   running: { steps_today: true, weekly_dist: true, avg_pace: true, runs_monthly: true, longest_run: false, elevation: false, fastest_5k: false, run_streak: false },
 };
+
+const METRIC_ORDER_KEY = 'hyvo.metricOrder';
+
+// The tiles for one page in the person's chosen order. Anything not in the saved
+// order (a tile added in a later version) goes after the ones that are.
+export function sortedMetrics(context: MetricContext, order: string[]): OverviewMetric[] {
+  const defs = OVERVIEW_METRICS[context];
+  const rank = (id: string) => {
+    const i = order.indexOf(id);
+    return i < 0 ? order.length + defs.findIndex((d) => d.id === id) : i;
+  };
+  return [...defs].sort((a, b) => rank(a.id) - rank(b.id));
+}
+
+function defaultOrder(): Record<MetricContext, string[]> {
+  return { home: OVERVIEW_METRICS.home.map((m) => m.id), strength: OVERVIEW_METRICS.strength.map((m) => m.id), running: OVERVIEW_METRICS.running.map((m) => m.id) };
+}
+
+function mergeMetricOrder(current: Record<MetricContext, string[]>, stored: Record<string, string[]>): Record<MetricContext, string[]> {
+  const out = { ...current };
+  (['home', 'strength', 'running'] as MetricContext[]).forEach((ctx) => {
+    const saved = (stored[ctx] ?? []).filter((id) => OVERVIEW_METRICS[ctx].some((m) => m.id === id));
+    out[ctx] = [...saved, ...current[ctx].filter((id) => !saved.includes(id))];
+  });
+  return out;
+}
 
 export const ACTIVITY_ICONS: Record<ActivityType, string> = {
   strength: 'strengthActivityIco',
@@ -422,6 +451,7 @@ interface TrackerStore {
   // Pulls Program/Preferences/Run history from the account after sign-in so
   // a returning user (or a reinstall) sees their real data, not fresh defaults.
   hydrateFromBackend: () => Promise<void>;
+  accountLoaded: boolean; // true once the account's workouts and runs have been fetched
 
   programEdit: ProgramEditState | null;
   customSessionExercisePicker: string | null; // custom session name currently adding an exercise to
@@ -506,10 +536,14 @@ interface TrackerStore {
   addSet: () => void;
   updateSet: (exId: string, idx: number, field: 'weight' | 'reps', value: number) => void;
   removeSet: (exId: string, idx: number) => void;
+  toggleSetDone: (exId: string, idx: number) => void;
   addSetTo: (exId: string) => void;
 
   // overview metric toggles
   enabled: Record<MetricContext, Record<string, boolean>>;
+  // Left-to-right, top-to-bottom order of each page's overview tiles.
+  order: Record<MetricContext, string[]>;
+  moveMetric: (context: MetricContext, id: string, dir: -1 | 1) => void;
   toggleMetric: (context: MetricContext, id: string) => void;
   overviewContext: MetricContext;
   setOverviewContext: (context: MetricContext) => void;
@@ -546,7 +580,8 @@ interface TrackerStore {
   // workout. Resolves ok:false (with the local state already ended, sets
   // kept) if the save fails — nothing logged locally is lost, it just
   // didn't sync.
-  finishWorkout: () => Promise<{ ok: boolean; error?: string }>;
+  // Saves the checked-off sets (plus the unchecked ones that have reps, when includeUnchecked is set).
+  finishWorkout: (opts?: { includeUnchecked?: boolean }) => Promise<{ ok: boolean; error?: string }>;
   restTimer: { status: 'idle' | 'running' | 'paused'; duration: number; remaining: number; cycles: number; customOpen: boolean };
   selectRestPreset: (seconds: number) => void;
   openCustomRest: () => void;
@@ -608,6 +643,8 @@ interface TrackerStore {
   // The "workout complete" screen shown right after a run or workout is finished.
   workoutSummary: WorkoutSummaryData | null;
   closeWorkoutSummary: () => void;
+  summaryStartInShare: boolean; // open the summary straight on the share designs
+  openWorkoutSummary: (summary: WorkoutSummaryData, startInShare?: boolean) => void;
   runStartedAt: number | null; // wall-clock moment the countdown ended and the run began
   openRunSetup: () => void;
   closeRunSetup: () => void;
@@ -683,7 +720,9 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   cardio: [],
   pendingLogs: [],
   pendingCardio: [],
+  accountLoaded: false,
   hydrateFromBackend: async () => {
+    set({ accountLoaded: false });
     const [programRes, prefsRes, runActivitiesRes, workoutLogsRes] = await Promise.allSettled([
       getProgram(),
       getPreferences(),
@@ -733,6 +772,17 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       }
     }
 
+    // Tile order: the account's copy if there is one, else what this device saved.
+    {
+      const fromAccount = prefsRes.status === 'fulfilled' ? prefsRes.value?.settings?.metricOrder : undefined;
+      const stored =
+        fromAccount ??
+        (await SecureStore.getItemAsync(METRIC_ORDER_KEY)
+          .then((v) => (v ? (JSON.parse(v) as Record<string, string[]>) : undefined))
+          .catch(() => undefined));
+      if (stored) set((s) => ({ order: mergeMetricOrder(s.order, stored) }));
+    }
+
     if (prefsRes.status === 'fulfilled' && prefsRes.value) {
       const prefs = prefsRes.value;
       const enabledMetrics = (prefs.enabledMetrics ?? {}) as Partial<Record<MetricContext, Record<string, boolean>>>;
@@ -752,6 +802,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       }));
     }
 
+    set({ accountLoaded: true });
     get().retryUnsynced().catch(() => {});
   },
 
@@ -1164,13 +1215,13 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       }
     }
     const list = get().sets[activeExerciseId] || [];
-    const next = [...list, { num: list.length + 1, weight, reps }];
+    const next = [...list, { num: list.length + 1, weight, reps, done: true }];
     set({ sets: { ...get().sets, [activeExerciseId]: next }, weightInput: '', repsInput: '' });
   },
   updateSet: (exId, idx, field, value) =>
     set((s) => {
       const list = s.sets[exId];
-      if (!list || !list[idx]) return {};
+      if (!list || !list[idx] || list[idx].done) return {}; // a checked-off set is locked until it's unchecked
       const next = list.map((row, i) => (i === idx ? { ...row, [field]: value } : row));
       return { sets: { ...s.sets, [exId]: next } };
     }),
@@ -1189,11 +1240,34 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     set((s) => {
       const list = s.sets[exId] || [];
       const last = list[list.length - 1];
-      const next = [...list, { num: list.length + 1, weight: last ? last.weight : 0, reps: last ? last.reps : 0 }];
+      const next = [...list, { num: list.length + 1, weight: last ? last.weight : 0, reps: last ? last.reps : 0, done: false }];
       return { sets: { ...s.sets, [exId]: next } };
+    }),
+  toggleSetDone: (exId, idx) =>
+    set((s) => {
+      const list = s.sets[exId];
+      if (!list || !list[idx]) return {};
+      return { sets: { ...s.sets, [exId]: list.map((row, i) => (i === idx ? { ...row, done: !row.done } : row)) } };
     }),
 
   enabled: { home: { ...OVERVIEW_DEFAULTS.home }, strength: { ...OVERVIEW_DEFAULTS.strength }, running: { ...OVERVIEW_DEFAULTS.running } },
+  order: defaultOrder(),
+  // Swaps a tile with the nearest visible one in that direction (hidden tiles
+  // have no position on the page, so they're skipped).
+  moveMetric: (context, id, dir) => {
+    const { order, enabled } = get();
+    const list = [...order[context]];
+    const from = list.indexOf(id);
+    if (from < 0) return;
+    let to = from + dir;
+    while (to >= 0 && to < list.length && !enabled[context][list[to]]) to += dir;
+    if (to < 0 || to >= list.length) return;
+    [list[from], list[to]] = [list[to], list[from]];
+    const next = { ...order, [context]: list };
+    set({ order: next });
+    SecureStore.setItemAsync(METRIC_ORDER_KEY, JSON.stringify(next)).catch(() => {});
+    persistSettings({ metricOrder: next });
+  },
   toggleMetric: (context, id) => {
     set((s) => ({ enabled: { ...s.enabled, [context]: { ...s.enabled[context], [id]: !s.enabled[context][id] } } }));
     savePreferences({ enabledMetrics: get().enabled }).catch(() => {});
@@ -1303,16 +1377,15 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       workoutSnapshotCounts: null,
     }));
   },
-  finishWorkout: async () => {
-    const { workoutSnapshotCounts, sets, activeSessionKey, sessions, workout } = get();
+  finishWorkout: async (opts) => {
+    const { sets, activeSessionKey, sessions, workout } = get();
     const session = sessions[activeSessionKey];
     const durationSec = workout.startedAt ? Math.round((Date.now() - workout.startedAt) / 1000) : workout.seconds;
     const newSets: { exerciseName: string; reps: number; weight: number }[] = [];
     const nextSets = { ...sets };
     (session?.exercises ?? []).forEach((ex) => {
-      const keepCount = workoutSnapshotCounts?.[ex.id] ?? 0;
-      (sets[ex.id] || []).slice(keepCount).forEach((row) => {
-        newSets.push({ exerciseName: ex.name, reps: row.reps, weight: row.weight });
+      (sets[ex.id] || []).forEach((row) => {
+        if (row.reps > 0 && (row.done || opts?.includeUnchecked)) newSets.push({ exerciseName: ex.name, reps: row.reps, weight: row.weight });
       });
       nextSets[ex.id] = []; // saved sets are history now, not "today's sets"
     });
@@ -1336,6 +1409,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
         sets: newSets.length,
         exercises: new Set(newSets.map((r) => r.exerciseName)).size,
         volumeKg: newSets.reduce((n, r) => n + r.weight * r.reps, 0),
+        exerciseSets: groupSetsByExercise(newSets),
       };
       return { ...base, workoutLogs, activities: buildActivities(workoutLogs, s.cardio), sessions: withPreviousWeights(s.sessions, workoutLogs), workoutSummary };
     });
@@ -1401,7 +1475,9 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   gpsIssue: null,
   countdownVal: 5,
   workoutSummary: null,
-  closeWorkoutSummary: () => set({ workoutSummary: null }),
+  closeWorkoutSummary: () => set({ workoutSummary: null, summaryStartInShare: false }),
+  summaryStartInShare: false,
+  openWorkoutSummary: (summary, startInShare = false) => set({ workoutSummary: summary, summaryStartInShare: startInShare }),
   runStartedAt: null,
   run: { ...RUN_DEFAULT },
   runSetupOpen: false,
@@ -1493,6 +1569,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       sets: 0,
       exercises: 0,
       volumeKg: 0,
+      exerciseSets: [],
     };
     set((s) => {
       const cardio = [record, ...s.cardio];

@@ -41,7 +41,7 @@ export function ConnectedAppsScreen() {
     { icon: <TrStepsIcon size={14} color={colors.accent200} />, label: 'Steps today', value: snapshot?.steps != null ? snapshot.steps.toLocaleString('en-US') : '—' },
     { icon: <TrBurnIcon size={14} color={colors.accent200} />, label: 'Active energy', value: snapshot?.activeCalories != null ? `${snapshot.activeCalories} kcal` : '—' },
     { icon: <TrSleepIcon size={14} color={colors.accent200} />, label: 'Sleep last night', value: fmtSleep(snapshot?.sleepMinutes ?? null) },
-    { icon: <TrHeartrateIcon size={14} color={colors.accent200} />, label: 'Avg heart rate (24h)', value: snapshot?.avgHeartRate != null ? `${snapshot.avgHeartRate} bpm` : '—' },
+    { icon: <TrHeartrateIcon size={14} color={colors.accent200} />, label: 'Resting heart rate (7 days)', value: snapshot?.restingHeartRate != null ? `${snapshot.restingHeartRate} bpm` : '—' },
   ];
 
   return (

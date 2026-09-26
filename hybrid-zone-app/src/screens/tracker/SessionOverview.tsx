@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { WorkoutTimerBlock } from '@/components/tracker/WorkoutTimerBlock';
 import { SwapExerciseSheet } from '@/components/tracker/SwapExerciseSheet';
 import { AddExerciseSheet } from '@/components/tracker/AddExerciseSheet';
-import { TrChartIcon, TrChevLeftIcon, TrChevRightIcon, TrClockIcon, TrPlayIcon, TrStrengthIcon, TrSwapIcon, TrTrashIcon } from '@/icons';
+import { TrChartIcon, TrCheckIcon, TrChevLeftIcon, TrChevRightIcon, TrClockIcon, TrPlayIcon, TrStrengthIcon, TrSwapIcon, TrTrashIcon } from '@/icons';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { getTodayFull } from '@/engine/calendar';
 import { useTrackerStore, SessionExercise } from '@/store/trackerStore';
@@ -30,6 +30,8 @@ export function SessionOverview() {
     toggleExpandExercise,
     updateSet,
     removeSet,
+    toggleSetDone,
+    workoutLogs,
     addSetTo,
     deleteExercise,
     openSwapExercise,
@@ -39,6 +41,22 @@ export function SessionOverview() {
   } = useTrackerStore();
 
   const [finishing, setFinishing] = useState(false);
+
+  // What each exercise's sets were last time, set by set, for the Previous column.
+  const previousSets = useMemo(() => {
+    const latest: Record<string, { date: number; sets: { weight: number; reps: number }[] }> = {};
+    workoutLogs.forEach((log) => {
+      const byName: Record<string, { weight: number; reps: number }[]> = {};
+      log.sets.forEach((st) => {
+        const k = st.exerciseName.toLowerCase();
+        byName[k] = [...(byName[k] ?? []), { weight: st.weight, reps: st.reps }];
+      });
+      Object.entries(byName).forEach(([k, list]) => {
+        if (!latest[k] || log.date > latest[k].date) latest[k] = { date: log.date, sets: list };
+      });
+    });
+    return latest;
+  }, [workoutLogs]);
   const sess = sessions[activeSessionKey];
 
   // The session was removed (e.g. the program was edited) while this screen was open.
@@ -70,9 +88,9 @@ export function SessionOverview() {
     ]);
   };
 
-  const handleFinish = async () => {
+  const runFinish = async (includeUnchecked: boolean) => {
     setFinishing(true);
-    const result = await finishWorkout();
+    const result = await finishWorkout({ includeUnchecked });
     setFinishing(false);
     if (!result.ok) {
       Alert.alert(
@@ -81,6 +99,33 @@ export function SessionOverview() {
           " Your workout is saved on this device and will upload automatically the next time you're online.",
       );
     }
+  };
+
+  // Only checked-off sets are saved, so make sure that's what was meant.
+  const handleFinish = () => {
+    const rows = sess.exercises.flatMap((ex) => sets[ex.id] || []);
+    const checked = rows.filter((r) => r.done && r.reps > 0).length;
+    const unchecked = rows.filter((r) => !r.done && r.reps > 0).length;
+    if (unchecked > 0) {
+      Alert.alert(
+        unchecked === 1 ? "1 set isn't checked off" : `${unchecked} sets aren't checked off`,
+        'Only checked sets are saved to your workout.',
+        [
+          { text: 'Keep going', style: 'cancel' },
+          ...(checked > 0 ? [{ text: 'Skip them', onPress: () => runFinish(false) }] : []),
+          { text: 'Save them too', onPress: () => runFinish(true) },
+        ],
+      );
+      return;
+    }
+    if (checked === 0) {
+      Alert.alert('No sets to save', 'Fill in reps and weight, then tap the check on each set you finish.', [
+        { text: 'Keep going', style: 'cancel' },
+        { text: 'Discard workout', style: 'destructive', onPress: cancelWorkout },
+      ]);
+      return;
+    }
+    runFinish(false);
   };
 
   return (
@@ -189,33 +234,55 @@ export function SessionOverview() {
                     layout={LinearTransition.duration(220)}
                   >
                     {rows.length ? (
-                      rows.map((row, i) => (
-                        <View key={i} style={styles.setRow}>
-                          <Text style={styles.setNum}>{i + 1}</Text>
-                          <Text style={styles.setPrev}>{ex.previous ? fmtWeightAuto(ex.previous, unitSystem) : '—'}</Text>
-                          <View style={styles.setField}>
-                            <NumField
-                              style={[styles.setFieldInput, { color: '#22c55e' }]}
-                              value={row.reps}
-                              toText={(n) => String(n)}
-                              onChange={(n) => updateSet(ex.id, i, 'reps', Math.round(n))}
-                            />
-                            <Text style={styles.unit}>rep</Text>
-                          </View>
-                          <View style={styles.setField}>
-                            <NumField
-                              style={[styles.setFieldInput, { color: '#f5a623' }]}
-                              value={row.weight}
-                              toText={(kg) => weightValueAuto(kg, unitSystem)}
-                              onChange={(n) => updateSet(ex.id, i, 'weight', weightToKg(n, unitSystem))}
-                            />
-                            <Text style={styles.unit}>{weightUnitLabel(unitSystem)}</Text>
-                          </View>
-                          <Pressable style={styles.setDel} onPress={() => removeSet(ex.id, i)}>
-                            <Text style={styles.setDelText}>✕</Text>
-                          </Pressable>
+                      <>
+                        <View style={styles.setHead}>
+                          <Text style={[styles.setHeadText, { width: 16 }]}>SET</Text>
+                          <Text style={[styles.setHeadText, { width: 72 }]}>PREVIOUS</Text>
+                          <Text style={[styles.setHeadText, { flex: 1 }]}>REPS</Text>
+                          <Text style={[styles.setHeadText, { flex: 1 }]}>WEIGHT</Text>
+                          <View style={{ width: 28 }} />
                         </View>
-                      ))
+                        {rows.map((row, i) => {
+                          const prev = previousSets[ex.name.toLowerCase()]?.sets[i];
+                          return (
+                            <View key={i} style={[styles.setRow, row.done && styles.setRowDone]}>
+                              <Text style={styles.setNum}>{i + 1}</Text>
+                              <Text style={styles.setPrev} numberOfLines={1}>
+                                {prev ? `${weightValueAuto(prev.weight, unitSystem)}×${prev.reps}` : ex.previous ? fmtWeightAuto(ex.previous, unitSystem) : '—'}
+                              </Text>
+                              <View style={styles.setField}>
+                                <NumField
+                                  style={styles.setFieldInput}
+                                  editable={!row.done}
+                                  value={row.reps}
+                                  toText={(n) => String(n)}
+                                  onChange={(n) => updateSet(ex.id, i, 'reps', Math.round(n))}
+                                />
+                                <Text style={styles.unit}>rep</Text>
+                              </View>
+                              <View style={styles.setField}>
+                                <NumField
+                                  style={styles.setFieldInput}
+                                  editable={!row.done}
+                                  value={row.weight}
+                                  toText={(kg) => weightValueAuto(kg, unitSystem)}
+                                  onChange={(n) => updateSet(ex.id, i, 'weight', weightToKg(n, unitSystem))}
+                                />
+                                <Text style={styles.unit}>{weightUnitLabel(unitSystem)}</Text>
+                              </View>
+                              {editingExercises ? (
+                                <Pressable style={styles.setCheck} onPress={() => removeSet(ex.id, i)} hitSlop={6}>
+                                  <TrTrashIcon size={12} color="#ef4444" />
+                                </Pressable>
+                              ) : (
+                                <Pressable style={[styles.setCheck, row.done && styles.setCheckDone]} onPress={() => toggleSetDone(ex.id, i)} hitSlop={6}>
+                                  <TrCheckIcon size={13} color={row.done ? colors.bg : colors.neutral500} />
+                                </Pressable>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </>
                     ) : (
                       <Text style={styles.noSets}>No sets logged yet.</Text>
                     )}
@@ -253,7 +320,7 @@ export function SessionOverview() {
 // A number box that keeps the text being typed as-is while focused (so "82.",
 // or clearing the box to retype, isn't snapped back to "0"), and only
 // reformats from the stored value once the user leaves it.
-function NumField({ value, toText, onChange, style }: { value: number; toText: (n: number) => string; onChange: (n: number) => void; style: object }) {
+function NumField({ value, toText, onChange, style, editable = true }: { value: number; toText: (n: number) => string; onChange: (n: number) => void; style: object; editable?: boolean }) {
   const [text, setText] = useState(toText(value));
   const focused = useRef(false);
   useEffect(() => {
@@ -264,6 +331,7 @@ function NumField({ value, toText, onChange, style }: { value: number; toText: (
     <TextInput
       style={style}
       keyboardType="decimal-pad"
+      editable={editable}
       value={text}
       selectTextOnFocus
       onFocus={() => {
@@ -309,13 +377,16 @@ const styles = StyleSheet.create({
   exIconBtn: { padding: 4 },
   exExpand: { paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12, gap: 8, borderTopWidth: 1, borderTopColor: colors.divider },
   setRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  setNum: { width: 16, fontSize: 12, color: colors.neutral400, fontFamily: fonts.regular },
-  setPrev: { width: 64, fontSize: 11, color: colors.neutral500, fontFamily: fonts.regular },
+  setHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  setHeadText: { fontSize: 9.5, letterSpacing: 0.6, color: colors.neutral500, fontFamily: fonts.semiBold },
+  setRowDone: { backgroundColor: 'rgba(34,197,94,0.12)', borderRadius: 12, marginHorizontal: -6, paddingHorizontal: 6, paddingVertical: 4 },
+  setNum: { width: 16, fontSize: 13, color: colors.text, fontFamily: fonts.semiBold },
+  setPrev: { width: 72, fontSize: 11.5, color: colors.neutral500, fontFamily: fonts.regular },
   setField: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.bg, borderRadius: radius.sm, paddingVertical: 9, paddingHorizontal: 12 },
-  setFieldInput: { flex: 1, fontFamily: fonts.semiBold, fontSize: 14.5, padding: 0 },
+  setFieldInput: { flex: 1, fontFamily: fonts.semiBold, fontSize: 14.5, padding: 0, color: colors.text },
   unit: { fontSize: 11, color: colors.neutral500, marginLeft: 6 },
-  setDel: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
-  setDelText: { fontSize: 10.5, color: colors.neutral500 },
+  setCheck: { width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: colors.neutral400, alignItems: 'center', justifyContent: 'center' },
+  setCheckDone: { backgroundColor: colors.green, borderColor: colors.green },
   noSets: { fontSize: 12.5, color: colors.neutral500, paddingVertical: 4, fontFamily: fonts.regular },
   expAddBtn: { alignItems: 'center', justifyContent: 'center', paddingVertical: 9, marginTop: 2, borderRadius: radius.sm, borderWidth: 1.5, borderColor: colors.neutral300, borderStyle: 'dashed' },
   expAddBtnText: { fontSize: 12.5, color: colors.neutral500, fontFamily: fonts.semiBold },

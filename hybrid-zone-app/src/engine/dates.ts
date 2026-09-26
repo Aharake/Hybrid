@@ -59,3 +59,10 @@ export function relativeWhen(ts: number, now: number = Date.now()): string {
   if (days < 30) return `${days} days ago`;
   return shortDate(ts);
 }
+
+// `ts` moved by whole local calendar days (safe across DST changes).
+export function addDays(ts: number, days: number): number {
+  const d = new Date(ts);
+  d.setDate(d.getDate() + days);
+  return d.getTime();
+}

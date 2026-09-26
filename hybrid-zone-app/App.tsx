@@ -1,5 +1,5 @@
 import '@/engine/locationTask'; // registers the background run-tracking task — must load before anything else
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { AppState, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -9,6 +9,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { OnboardingNavigator } from '@/navigation/OnboardingNavigator';
 import { TrackerNavigator } from '@/navigation/TrackerNavigator';
 import { AuthScreen } from '@/screens/AuthScreen';
+import { IntroSplash } from '@/components/IntroSplash';
 import { useAppFonts } from '@/theme/fonts';
 import { colors } from '@/theme/tokens';
 import { useRootStore } from '@/store/rootStore';
@@ -25,6 +26,8 @@ export default function App() {
   const setPhase = useRootStore((s) => s.setPhase);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   const configureSubscriptions = useSubscriptionStore((s) => s.configure);
+  const [introDone, setIntroDone] = useState(false);
+  const finishIntro = useCallback(() => setIntroDone(true), []);
 
   useEffect(() => {
     // Configure RevenueCat first (no-op until it's set up — see
@@ -48,13 +51,13 @@ export default function App() {
     return () => sub.remove();
   }, [bootstrap]);
 
+  // The native splash is plain black; as soon as the fonts are in, the app's own
+  // intro screen (logo + name) takes over from it and covers the sign-in check.
   useEffect(() => {
-    if ((fontsLoaded || fontError) && phase !== 'checking') {
-      SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [fontsLoaded, fontError, phase]);
+    if (fontsLoaded || fontError) SplashScreen.hideAsync().catch(() => {});
+  }, [fontsLoaded, fontError]);
 
-  if ((!fontsLoaded && !fontError) || phase === 'checking') {
+  if (!fontsLoaded && !fontError) {
     return null;
   }
 
@@ -62,12 +65,15 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
-          <NavigationContainer>
-            <StatusBar style="light" />
-            {phase === 'authenticated' && <TrackerNavigator />}
-            {phase === 'onboarding' && <OnboardingNavigator />}
-            {phase === 'loggedOut' && <AuthScreen onAuthenticated={() => setPhase('authenticated')} />}
-          </NavigationContainer>
+          {phase !== 'checking' && (
+            <NavigationContainer>
+              <StatusBar style="light" />
+              {phase === 'authenticated' && <TrackerNavigator />}
+              {phase === 'onboarding' && <OnboardingNavigator />}
+              {phase === 'loggedOut' && <AuthScreen onAuthenticated={() => setPhase('authenticated')} />}
+            </NavigationContainer>
+          )}
+          {!introDone && <IntroSplash ready={phase !== 'checking'} onDone={finishIntro} />}
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>

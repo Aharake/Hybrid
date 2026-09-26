@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import {
   HealthSnapshot,
+  HEALTH_PERMISSION_VERSION,
   healthSourceName,
   isHealthAvailable,
   isHealthPlatformSupported,
@@ -12,6 +13,7 @@ import {
 
 const CONNECTED_KEY = 'hyvo.health.connected';
 const PROMPTED_KEY = 'hyvo.health.prompted';
+const PERMISSION_VERSION_KEY = 'hyvo.health.permVersion';
 // Refreshes closer together than this are skipped.
 const MIN_REFRESH_GAP_MS = 60_000;
 // While the app is open, re-read this often so the Home tiles keep up on their own.
@@ -62,6 +64,12 @@ export const useHealthStore = create<HealthStore>((set, get) => ({
     set({ prompted: prompted === '1' || saved === '1', promptReady: true });
     if (saved === '1') {
       set({ connected: true });
+      // A newer build reads one more kind of data: ask again, once, so it's covered.
+      const permVersion = await SecureStore.getItemAsync(PERMISSION_VERSION_KEY).catch(() => null);
+      if (permVersion !== HEALTH_PERMISSION_VERSION) {
+        await requestHealthAccess().catch(() => false);
+        await SecureStore.setItemAsync(PERMISSION_VERSION_KEY, HEALTH_PERMISSION_VERSION).catch(() => {});
+      }
       get().refresh(true);
     }
     AppState.addEventListener('change', (state) => {
@@ -90,6 +98,7 @@ export const useHealthStore = create<HealthStore>((set, get) => ({
         return false;
       }
       await SecureStore.setItemAsync(CONNECTED_KEY, '1').catch(() => {});
+      await SecureStore.setItemAsync(PERMISSION_VERSION_KEY, HEALTH_PERMISSION_VERSION).catch(() => {});
       set({ connected: true, prompted: true });
       await get().refresh(true);
       return true;
