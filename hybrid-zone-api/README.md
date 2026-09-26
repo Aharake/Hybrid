@@ -62,10 +62,10 @@ client IDs registered per platform in Google Cloud Console:
    - **Web application** — no redirect URIs needed for our flow. This is
      the one with a client *secret*; it's what the server uses to verify
      ID tokens. → gives you a Client ID + Client Secret.
-   - **iOS** — Bundle ID: `com.hybridzone.app` (matches `app.json`'s
+   - **iOS** — Bundle ID: `com.aleveatelier.hyvo` (matches `app.json`'s
      `ios.bundleIdentifier` — change both together if you rename it). →
      gives you an iOS Client ID (no secret).
-   - **Android** — Package name: `com.hybridzone.app`, plus a SHA-1
+   - **Android** — Package name: `com.aleveatelier.hyvo`, plus a SHA-1
      certificate fingerprint. For an EAS development build, get it with
      `eas credentials` (select Android → Development → view/generate a
      keystore, it prints the SHA-1). → gives you an Android Client ID (no
@@ -113,7 +113,7 @@ wired to activate automatically once you have:
 
 1. **Create a RevenueCat project** at [app.revenuecat.com](https://app.revenuecat.com),
    add your iOS and Android apps to it (bundle/package id
-   `com.hybridzone.app`), and connect each to its store (App Store Connect
+   `com.aleveatelier.hyvo`), and connect each to its store (App Store Connect
    API key / Google Play service account JSON).
 2. **Create an entitlement** named exactly `hyvo_pro` (the app checks for
    this identifier — see `ENTITLEMENT_ID` in `hybrid-zone-app/src/store/subscriptionStore.ts`).

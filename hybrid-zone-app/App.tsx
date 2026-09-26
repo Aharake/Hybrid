@@ -2,6 +2,7 @@ import '@/engine/locationTask'; // registers the background run-tracking task â€
 import React, { useEffect } from 'react';
 import { AppState, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -59,14 +60,16 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <NavigationContainer>
-          <StatusBar style="light" />
-          {phase === 'authenticated' && <TrackerNavigator />}
-          {phase === 'onboarding' && <OnboardingNavigator />}
-          {phase === 'loggedOut' && <AuthScreen onAuthenticated={() => setPhase('authenticated')} />}
-        </NavigationContainer>
-      </View>
+      <SafeAreaProvider>
+        <View style={{ flex: 1, backgroundColor: colors.bg }}>
+          <NavigationContainer>
+            <StatusBar style="light" />
+            {phase === 'authenticated' && <TrackerNavigator />}
+            {phase === 'onboarding' && <OnboardingNavigator />}
+            {phase === 'loggedOut' && <AuthScreen onAuthenticated={() => setPhase('authenticated')} />}
+          </NavigationContainer>
+        </View>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
