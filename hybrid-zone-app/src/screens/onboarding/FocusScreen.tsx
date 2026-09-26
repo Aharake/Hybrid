@@ -22,7 +22,7 @@ export function FocusScreen() {
   return (
     <OnboardingScreen
       progress={50}
-      footer={<PrimaryButton label="Continue" disabled={!focus} onPress={() => navigation.navigate('Motivation2')} />}
+      footer={<PrimaryButton label="Continue" disabled={!focus} onPress={() => navigation.navigate('RunningInterstitial')} />}
     >
       <Text style={[typography.title, { color: colors.text, marginBottom: 10 }]}>Training Focus</Text>
       <Text style={[typography.subtitle, { marginBottom: 26 }]}>

@@ -9,7 +9,6 @@ import { StrengthGoalScreen } from '@/screens/onboarding/StrengthGoalScreen';
 import { Motivation1Screen } from '@/screens/onboarding/Motivation1Screen';
 import { EquipmentScreen } from '@/screens/onboarding/EquipmentScreen';
 import { FocusScreen } from '@/screens/onboarding/FocusScreen';
-import { Motivation2Screen } from '@/screens/onboarding/Motivation2Screen';
 import { RunningInterstitialScreen } from '@/screens/onboarding/RunningInterstitialScreen';
 import { RunningGoalScreen } from '@/screens/onboarding/RunningGoalScreen';
 import { ScheduleScreen } from '@/screens/onboarding/ScheduleScreen';
@@ -35,7 +34,6 @@ export function OnboardingNavigator() {
       <Stack.Screen name="Motivation1" component={Motivation1Screen} />
       <Stack.Screen name="Equipment" component={EquipmentScreen} />
       <Stack.Screen name="Focus" component={FocusScreen} />
-      <Stack.Screen name="Motivation2" component={Motivation2Screen} />
       <Stack.Screen name="RunningInterstitial" component={RunningInterstitialScreen} />
       <Stack.Screen name="RunningGoal" component={RunningGoalScreen} />
       <Stack.Screen name="Schedule" component={ScheduleScreen} />

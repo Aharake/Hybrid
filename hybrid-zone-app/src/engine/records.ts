@@ -100,3 +100,22 @@ export function activityMeta(a: ActivityItem, unitSystem: UnitSystem): string {
   if (a.otherStats?.distance) return `${label} · ${fmtDistance(a.otherStats.distance, unitSystem)}`;
   return `${label} · ${a.otherStats?.duration ?? 0} min`;
 }
+
+// What the "workout complete" screen shows straight after a run or strength
+// workout is finished. Health-app numbers (steps, heart rate, energy) are
+// added on the screen itself, from the phone's health store, for the same
+// time window.
+export interface WorkoutSummaryData {
+  kind: 'run' | 'strength';
+  title: string;
+  startedAt: number; // ms epoch
+  endedAt: number; // ms epoch
+  durationSec: number; // active time (excludes pauses)
+  distanceKm: number | null; // runs only
+  route: RoutePoint[] | null; // runs only
+  maxSpeedKmh: number | null; // runs only
+  estCalories: number | null; // the app's own rough estimate, used only if the health app has no reading
+  sets: number; // strength only
+  exercises: number; // strength only
+  volumeKg: number; // strength only: sum of weight × reps
+}

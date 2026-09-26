@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -8,6 +8,7 @@ import { AddSetSheet } from '@/components/tracker/AddSetSheet';
 import { TrChevLeftIcon, TrPlusIcon } from '@/icons';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { buildExerciseHistory, buildExerciseGraph, build1RMGraph, HistorySession } from '@/engine/exerciseHistory';
+import { clockTime } from '@/engine/dates';
 import { fmtWeightAuto, weightUnitLabel, weightValueAuto, UnitSystem } from '@/engine/units';
 import { useTrackerStore } from '@/store/trackerStore';
 
@@ -19,18 +20,23 @@ const TABS: ['sets' | 'analyze' | '1rm', string][] = [
 
 export function ExerciseDetail() {
   const navigation = useNavigation();
-  const { activeExerciseId, findExerciseById, exerciseDetailTab, selectExerciseTab, openExercise, unitSystem, workoutLogs } = useTrackerStore();
+  const { viewedExerciseId, findExerciseById, exerciseDetailTab, selectExerciseTab, openExercise, unitSystem, workoutLogs, sets } = useTrackerStore();
 
-  // activeExerciseId doubles as the "Log set" sheet's open flag and is cleared
-  // when that sheet closes — so remember the exercise this screen was opened
-  // for instead of falling back to a fixed one (which crashed once that
-  // exercise had been edited/removed, and showed the wrong lift otherwise).
-  const shownId = useRef<string | null>(activeExerciseId);
-  if (activeExerciseId) shownId.current = activeExerciseId;
-  const ex = shownId.current ? findExerciseById(shownId.current) : null;
+  const ex = viewedExerciseId ? findExerciseById(viewedExerciseId) : null;
 
   const history = useMemo(() => (ex ? buildExerciseHistory(ex.name, workoutLogs) : []), [ex?.name, workoutLogs]);
   const historyDesc = useMemo(() => [...history].reverse(), [history]); // most-recent-first for the Sets list
+
+  // Sets logged in the workout that's in progress aren't saved yet, so they
+  // aren't in workoutLogs — show them at the top so logging feels instant.
+  const todaySets = ex ? sets[ex.id] || [] : [];
+  const today: HistorySession | null = todaySets.length
+    ? {
+        date: 'Today',
+        topWeight: Math.max(...todaySets.map((st) => st.weight)),
+        sets: todaySets.map((st, i) => ({ num: i + 1, time: clockTime(Date.now()), reps: st.reps, weight: st.weight })),
+      }
+    : null;
 
   // The exercise was deleted or swapped out while this screen was open.
   if (!ex) {
@@ -72,7 +78,7 @@ export function ExerciseDetail() {
           })}
         </View>
 
-        {history.length === 0 ? (
+        {history.length === 0 && !today ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No history yet</Text>
             <Text style={styles.emptyText}>Log your first sets for {ex.name} with the + button and your history, progress graph and estimated 1RM will build up here.</Text>
@@ -111,7 +117,7 @@ export function ExerciseDetail() {
   );
 }
 
-function HistCard({ day, unitSystem }: { day: HistorySession; unitSystem: UnitSystem }) {
+function HistCard({ day, unitSystem, live }: { day: HistorySession; unitSystem: UnitSystem; live?: boolean }) {
   return (
     <View style={styles.histCard}>
       <View style={styles.histHead}>
@@ -235,6 +241,7 @@ const styles = StyleSheet.create({
   histCard: { backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden' },
   histHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingTop: 14, paddingBottom: 10 },
   histHeadText: { fontFamily: fonts.medium, fontSize: 14, color: colors.text },
+  histLive: { fontFamily: fonts.medium, fontSize: 11.5, color: colors.strength },
   histSet: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 14 },
   histSetBorder: { borderTopWidth: 1, borderTopColor: colors.divider },
   histNum: { width: 16, fontSize: 12, color: colors.neutral400 },

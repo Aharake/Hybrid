@@ -3,13 +3,13 @@ import { Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
-import { GrowthChart } from '@/components/onboarding/GrowthChart';
+import { ProgressionChart, ProgressionGoal } from '@/components/onboarding/ProgressionChart';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { useOnboardingStore } from '@/store/onboardingStore';
 import { colors, typography } from '@/theme/tokens';
 import type { OnboardingStackParamList } from '@/navigation/types';
 
-const COPY: Record<string, [string, string, string]> = {
+const COPY: Record<ProgressionGoal, [string, string, string]> = {
   general: ["We'll help you stay ", 'consistent', ' with sustainable training.'],
   strength: ["We'll help you get ", 'stronger', ' with the right intensity.'],
   muscle: ["We'll help you build ", 'muscle', ' with the right volume.'],
@@ -19,7 +19,8 @@ const COPY: Record<string, [string, string, string]> = {
 export function Motivation1Screen() {
   const navigation = useNavigation<NativeStackNavigationProp<OnboardingStackParamList, 'Motivation1'>>();
   const strengthGoal = useOnboardingStore((s) => s.strengthGoal);
-  const copy = (strengthGoal && COPY[strengthGoal]) || COPY.general;
+  const goal: ProgressionGoal = strengthGoal && strengthGoal in COPY ? (strengthGoal as ProgressionGoal) : 'general';
+  const copy = COPY[goal];
 
   return (
     <OnboardingScreen progress={30} footer={<PrimaryButton label="Continue" onPress={() => navigation.navigate('Equipment')} />}>
@@ -30,7 +31,7 @@ export function Motivation1Screen() {
           {copy[2]}
         </Text>
       </View>
-      <GrowthChart />
+      <ProgressionChart goal={goal} />
     </OnboardingScreen>
   );
 }

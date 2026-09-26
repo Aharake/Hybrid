@@ -240,3 +240,103 @@ export async function readHealthSnapshot(): Promise<HealthSnapshot> {
   const data = Platform.OS === 'ios' ? await readIos() : await readAndroid();
   return { ...data, updatedAt: Date.now() };
 }
+
+/* ---------------- one workout's window ---------------- */
+
+export interface WorkoutHealthStats {
+  steps: number | null;
+  activeCalories: number | null;
+  avgHeartRate: number | null;
+  maxHeartRate: number | null;
+  heartRate: number[] | null; // bpm across the workout, evenly spaced, for the chart
+}
+
+const HR_CHART_POINTS = 32;
+
+// Buckets heart-rate points across [from, to] into evenly spaced averages,
+// carrying the previous value over empty buckets. Null when there are too few
+// readings for a chart to mean anything.
+function heartRateSeries(points: { t: number; bpm: number }[], from: number, to: number): number[] | null {
+  if (points.length < 3 || to <= from) return null;
+  const slice = (to - from) / HR_CHART_POINTS;
+  const sums = new Array<number>(HR_CHART_POINTS).fill(0);
+  const counts = new Array<number>(HR_CHART_POINTS).fill(0);
+  for (const p of points) {
+    const i = Math.min(HR_CHART_POINTS - 1, Math.max(0, Math.floor((p.t - from) / slice)));
+    sums[i] += p.bpm;
+    counts[i] += 1;
+  }
+  const out: number[] = [];
+  let last: number | null = null;
+  for (let i = 0; i < HR_CHART_POINTS; i++) {
+    if (counts[i]) last = sums[i] / counts[i];
+    out.push(last ?? 0);
+  }
+  const firstReal = out.find((v) => v > 0) ?? 0;
+  return out.map((v) => Math.round(v > 0 ? v : firstReal));
+}
+
+function summarizeHeartRate(points: { t: number; bpm: number }[] | null, from: number, to: number) {
+  if (!points || !points.length) return { avg: null, max: null, series: null };
+  return {
+    avg: average(points.map((p) => p.bpm)),
+    max: Math.round(Math.max(...points.map((p) => p.bpm))),
+    series: heartRateSeries(points, from, to),
+  };
+}
+
+// Steps, energy and heart rate recorded between `startMs` and `endMs` — for the
+// summary shown when a run or workout finishes. Needs the same read access the
+// Home tiles use; anything the health app has no data for comes back null.
+export async function readWorkoutHealthStats(startMs: number, endMs: number): Promise<WorkoutHealthStats> {
+  // A watch syncs a little after the fact, so pad the end slightly.
+  const from = startMs;
+  const to = endMs + 60_000;
+
+  if (Platform.OS === 'ios') {
+    const hk = healthKit();
+    const filter = { date: { startDate: new Date(from), endDate: new Date(to) } };
+    const steps = await safe(async () => {
+      const r = await hk.queryStatisticsForQuantity('HKQuantityTypeIdentifierStepCount', ['cumulativeSum'], { filter, unit: 'count' });
+      return r.sumQuantity?.quantity ?? null;
+    });
+    const energy = await safe(async () => {
+      const r = await hk.queryStatisticsForQuantity('HKQuantityTypeIdentifierActiveEnergyBurned', ['cumulativeSum'], { filter, unit: 'kcal' });
+      return r.sumQuantity?.quantity ?? null;
+    });
+    const hr = await safe(async () => {
+      const samples = await hk.queryQuantitySamples('HKQuantityTypeIdentifierHeartRate', { limit: 2000, ascending: true, unit: 'count/min', filter });
+      return samples.map((s) => ({ t: s.startDate.getTime(), bpm: s.quantity }));
+    });
+    const h = summarizeHeartRate(hr, from, to);
+    return {
+      steps: steps !== null && steps > 0 ? Math.round(steps) : null,
+      activeCalories: energy !== null && energy > 0 ? Math.round(energy) : null,
+      avgHeartRate: h.avg,
+      maxHeartRate: h.max,
+      heartRate: h.series,
+    };
+  }
+
+  if (Platform.OS === 'android') {
+    const hc = healthConnect();
+    await safe(() => hc.initialize());
+    const range = { operator: 'between' as const, startTime: new Date(from).toISOString(), endTime: new Date(to).toISOString() };
+    const steps = await safe(async () => (await hc.aggregateRecord({ recordType: 'Steps', timeRangeFilter: range })).COUNT_TOTAL);
+    const energy = await safe(async () => (await hc.aggregateRecord({ recordType: 'ActiveCaloriesBurned', timeRangeFilter: range })).ACTIVE_CALORIES_TOTAL.inKilocalories);
+    const hr = await safe(async () => {
+      const { records } = await hc.readRecords('HeartRate', { timeRangeFilter: range, ascendingOrder: true });
+      return records.flatMap((r) => r.samples.map((s) => ({ t: new Date(s.time).getTime(), bpm: s.beatsPerMinute })));
+    });
+    const h = summarizeHeartRate(hr, from, to);
+    return {
+      steps: steps !== null && steps > 0 ? Math.round(steps) : null,
+      activeCalories: energy !== null && energy > 0 ? Math.round(energy) : null,
+      avgHeartRate: h.avg,
+      maxHeartRate: h.max,
+      heartRate: h.series,
+    };
+  }
+
+  return { steps: null, activeCalories: null, avgHeartRate: null, maxHeartRate: null, heartRate: null };
+}

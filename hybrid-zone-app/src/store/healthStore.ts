@@ -11,8 +11,11 @@ import {
 } from '@/engine/health';
 
 const CONNECTED_KEY = 'hyvo.health.connected';
-// Foreground refreshes closer together than this are skipped.
+const PROMPTED_KEY = 'hyvo.health.prompted';
+// Refreshes closer together than this are skipped.
 const MIN_REFRESH_GAP_MS = 60_000;
+// While the app is open, re-read this often so the Home tiles keep up on their own.
+const AUTO_REFRESH_MS = 65_000;
 
 interface HealthStore {
   supported: boolean;
@@ -20,8 +23,14 @@ interface HealthStore {
   syncing: boolean;
   error: string | null;
   snapshot: HealthSnapshot | null;
+  // True once the saved "already asked" flag has been read, so the first-run
+  // prompt never flashes up for someone who has already answered it.
+  promptReady: boolean;
+  prompted: boolean;
+  markPrompted: () => void;
   // Restores the saved "connected" flag on launch, syncs once if it's on, and
-  // keeps data fresh whenever the app comes back to the foreground.
+  // keeps data fresh whenever the app comes back to the foreground and every
+  // minute or so while it stays open.
   init: () => Promise<void>;
   connect: () => Promise<boolean>;
   // Stops Hyvo reading/showing health data. The OS-level permission itself can
@@ -38,11 +47,19 @@ export const useHealthStore = create<HealthStore>((set, get) => ({
   syncing: false,
   error: null,
   snapshot: null,
+  promptReady: false,
+  prompted: false,
+  markPrompted: () => {
+    set({ prompted: true });
+    SecureStore.setItemAsync(PROMPTED_KEY, '1').catch(() => {});
+  },
 
   init: async () => {
     if (initialized || !isHealthPlatformSupported) return;
     initialized = true;
     const saved = await SecureStore.getItemAsync(CONNECTED_KEY).catch(() => null);
+    const prompted = await SecureStore.getItemAsync(PROMPTED_KEY).catch(() => null);
+    set({ prompted: prompted === '1' || saved === '1', promptReady: true });
     if (saved === '1') {
       set({ connected: true });
       get().refresh(true);
@@ -50,6 +67,11 @@ export const useHealthStore = create<HealthStore>((set, get) => ({
     AppState.addEventListener('change', (state) => {
       if (state === 'active' && get().connected) get().refresh();
     });
+    // Keep the numbers fresh while the app stays open, without the person
+    // having to leave and come back.
+    setInterval(() => {
+      if (AppState.currentState === 'active' && get().connected) get().refresh();
+    }, AUTO_REFRESH_MS);
   },
 
   connect: async () => {
@@ -68,7 +90,7 @@ export const useHealthStore = create<HealthStore>((set, get) => ({
         return false;
       }
       await SecureStore.setItemAsync(CONNECTED_KEY, '1').catch(() => {});
-      set({ connected: true });
+      set({ connected: true, prompted: true });
       await get().refresh(true);
       return true;
     } catch {

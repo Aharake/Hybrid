@@ -6,7 +6,6 @@ export type OnboardingStackParamList = {
   Motivation1: undefined;
   Equipment: undefined;
   Focus: undefined;
-  Motivation2: undefined;
   RunningInterstitial: undefined;
   RunningGoal: undefined;
   Schedule: undefined;

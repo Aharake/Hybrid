@@ -25,6 +25,7 @@ import {
   SessionExercise,
   SessionKey,
   WorkoutLogRecord,
+  WorkoutSummaryData,
 } from '@/engine/records';
 import { StatsInput, computeDataHighlights } from '@/engine/stats';
 import { activityDaysAgo } from '@/engine/records';
@@ -488,7 +489,8 @@ interface TrackerStore {
   setRunSharePhoto: (uri: string | null) => void;
 
   // add-set sheet
-  activeExerciseId: string | null;
+  activeExerciseId: string | null; // the exercise whose log-set sheet is open
+  viewedExerciseId: string | null; // the exercise whose history page is showing
   sets: Record<string, SetEntry[]>;
   weightInput: string;
   repsInput: string;
@@ -603,6 +605,10 @@ interface TrackerStore {
   // discards — matches the Cancel/Finish distinction the workout tracker
   // already makes.
   finishRun: () => void;
+  // The "workout complete" screen shown right after a run or workout is finished.
+  workoutSummary: WorkoutSummaryData | null;
+  closeWorkoutSummary: () => void;
+  runStartedAt: number | null; // wall-clock moment the countdown ended and the run began
   openRunSetup: () => void;
   closeRunSetup: () => void;
   selectRunType: (t: RunType) => void;
@@ -1120,11 +1126,13 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   setAnalyticsSearch: (val) => set({ analyticsSearch: val }),
 
   activeExerciseId: null,
+  viewedExerciseId: null,
   sets: {},
   weightInput: '',
   repsInput: '',
   openExercise: (id) => set({ activeExerciseId: id, weightInput: '', repsInput: '' }),
-  viewExerciseAnalytics: (id) => set({ activeExerciseId: id, exerciseDetailTab: 'sets' }),
+  // Opening an exercise's history must not also pop the log-set sheet — that sheet is driven by activeExerciseId alone.
+  viewExerciseAnalytics: (id) => set({ viewedExerciseId: id, exerciseDetailTab: 'sets' }),
   closeExerciseModal: () => set({ activeExerciseId: null }),
   setWeightInput: (v) => set({ weightInput: v }),
   setRepsInput: (v) => set({ repsInput: v }),
@@ -1315,7 +1323,21 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       const base = { workout: { active: false, seconds: 0, startedAt: null }, restTimer: { ...s.restTimer, status: 'idle' as const }, workoutSnapshotCounts: null, sets: nextSets };
       if (newSets.length === 0) return base;
       const workoutLogs = [record, ...s.workoutLogs];
-      return { ...base, workoutLogs, activities: buildActivities(workoutLogs, s.cardio), sessions: withPreviousWeights(s.sessions, workoutLogs) };
+      const workoutSummary: WorkoutSummaryData = {
+        kind: 'strength',
+        title: 'Strength Workout',
+        startedAt: workout.startedAt ?? date - durationSec * 1000,
+        endedAt: date,
+        durationSec,
+        distanceKm: null,
+        route: null,
+        maxSpeedKmh: null,
+        estCalories: null,
+        sets: newSets.length,
+        exercises: new Set(newSets.map((r) => r.exerciseName)).size,
+        volumeKg: newSets.reduce((n, r) => n + r.weight * r.reps, 0),
+      };
+      return { ...base, workoutLogs, activities: buildActivities(workoutLogs, s.cardio), sessions: withPreviousWeights(s.sessions, workoutLogs), workoutSummary };
     });
     if (newSets.length === 0) return { ok: true };
     try {
@@ -1378,6 +1400,9 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   runStatus: 'idle',
   gpsIssue: null,
   countdownVal: 5,
+  workoutSummary: null,
+  closeWorkoutSummary: () => set({ workoutSummary: null }),
+  runStartedAt: null,
   run: { ...RUN_DEFAULT },
   runSetupOpen: false,
   runType: 'open',
@@ -1386,7 +1411,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   customDistanceVal: 8,
   intervalMeters: 400,
   intervalReps: 6,
-  openRunTracker: () => set({ runTrackerOpen: true, runStatus: 'idle', gpsIssue: null, run: { ...RUN_DEFAULT } }),
+  openRunTracker: () => set({ runTrackerOpen: true, runStatus: 'idle', gpsIssue: null, runStartedAt: null, run: { ...RUN_DEFAULT } }),
   closeRunTracker: () => {
     stopRunTracking().catch(() => {}); // best-effort — local state resets regardless
     set({ runTrackerOpen: false, runStatus: 'idle' });
@@ -1404,7 +1429,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
             if (!ok) set({ gpsIssue: 'denied' });
           })
           .catch(() => set({ gpsIssue: 'denied' }));
-        return { runStatus: 'running', countdownVal: 0 };
+        return { runStatus: 'running', countdownVal: 0, runStartedAt: Date.now() };
       }
       return { countdownVal: next };
     }),
@@ -1454,9 +1479,24 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       durationMin,
       route: run.route,
     };
+    const endedAt = record.date;
+    const workoutSummary: WorkoutSummaryData = {
+      kind: 'run',
+      title: record.title,
+      startedAt: get().runStartedAt ?? endedAt - run.elapsed * 1000,
+      endedAt,
+      durationSec: run.elapsed,
+      distanceKm: run.distance,
+      route: run.route,
+      maxSpeedKmh: run.maxSpeedKmh,
+      estCalories: Math.round(run.distance * 65),
+      sets: 0,
+      exercises: 0,
+      volumeKg: 0,
+    };
     set((s) => {
       const cardio = [record, ...s.cardio];
-      return { cardio, activities: buildActivities(s.workoutLogs, cardio), runTrackerOpen: false, runStatus: 'idle' };
+      return { cardio, activities: buildActivities(s.workoutLogs, cardio), runTrackerOpen: false, runStatus: 'idle', workoutSummary };
     });
     saveRunActivity({
       type: 'running',
