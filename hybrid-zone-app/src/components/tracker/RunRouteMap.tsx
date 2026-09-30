@@ -3,6 +3,12 @@ import { Platform, StyleSheet, View } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { colors } from '@/theme/trackerTokens';
 import type { RoutePoint } from '@/engine/gps';
+import { RoutePolylineSvg } from './RoutePolylineSvg';
+
+const ROUTE_BLUE = '#2f8cff';
+
+// Google Maps on Android needs an API key at build time; see app.config.js.
+const ANDROID_MAPS_AVAILABLE = Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY);
 
 interface Props {
   route: RoutePoint[];
@@ -37,8 +43,8 @@ function bearingDeg(a: RoutePoint, b: RoutePoint): number {
 }
 
 // Wraps react-native-maps with the app's dark styling. Android uses Google
-// Maps (needs the API key in app.json); iOS uses Apple's own Maps, no key
-// required.
+// Maps (needs EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY); iOS uses Apple's own Maps,
+// no key required. Without the Android key it shows the route as a drawing.
 export function RunRouteMap({ route, live, style }: Props) {
   const mapRef = useRef<MapView>(null);
   const headingRef = useRef(0);
@@ -63,6 +69,14 @@ export function RunRouteMap({ route, live, style }: Props) {
   }, [route, live]);
 
   if (route.length === 0) return <View style={[styles.empty, style]} />;
+
+  if (Platform.OS === 'android' && !ANDROID_MAPS_AVAILABLE) {
+    return (
+      <View style={[styles.empty, styles.fallback, style]}>
+        <RoutePolylineSvg route={route} size={200} color={colors.accent200} />
+      </View>
+    );
+  }
 
   return (
     <MapView
@@ -98,7 +112,8 @@ export function RunRouteMap({ route, live, style }: Props) {
             },
           })}
     >
-      {route.length > 1 && <Polyline coordinates={route} strokeColor={colors.running} strokeWidth={5} lineCap="round" lineJoin="round" />}
+      {route.length > 1 && <Polyline coordinates={route} strokeColor="rgba(0,0,0,0.55)" strokeWidth={11} lineCap="round" lineJoin="round" />}
+      {route.length > 1 && <Polyline coordinates={route} strokeColor={ROUTE_BLUE} strokeWidth={7} lineCap="round" lineJoin="round" />}
     </MapView>
   );
 }
@@ -106,4 +121,5 @@ export function RunRouteMap({ route, live, style }: Props) {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   empty: { backgroundColor: colors.surface },
+  fallback: { alignItems: 'center', justifyContent: 'center', flex: 1 },
 });

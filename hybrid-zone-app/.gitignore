@@ -5,5 +5,9 @@ web-build/
 *.log
 .DS_Store
 *.pem
+*.jks
+*.keystore
+google-service-account*.json
+AuthKey_*.p8
 .env
 .env.local

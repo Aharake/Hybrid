@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, BackHandler, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -6,12 +6,12 @@ import * as Sharing from 'expo-sharing';
 import ViewShot from 'react-native-view-shot';
 import Svg, { Circle, Defs, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { colors, fonts } from '@/theme/trackerTokens';
-import { TrBurnIcon, TrCheckIcon, TrClockIcon, TrHeartrateIcon, TrPaceIcon, TrPlusIcon, TrShareIcon, TrStepsIcon } from '@/icons';
+import { TrBurnIcon, TrCheckIcon, TrClockIcon, TrElevationIcon, TrHeartrateIcon, TrPaceIcon, TrPlusIcon, TrShareIcon, TrStepsIcon } from '@/icons';
 import { RoutePolylineSvg } from './RoutePolylineSvg';
 import { useTrackerStore } from '@/store/trackerStore';
 import { useHealthStore } from '@/store/healthStore';
 import { healthSourceName, readWorkoutHealthStats, WorkoutHealthStats } from '@/engine/health';
-import { normalizeRouteToUnitSquare, type RoutePoint } from '@/engine/gps';
+import { elevationGainM, haversineDistanceKm, normalizeRouteToUnitSquare, routeHasAltitude, type RoutePoint } from '@/engine/gps';
 import type { WorkoutSummaryData } from '@/engine/records';
 import { distanceUnitLabel, distanceValueOnly, fmtPaceFromSecPerKm, fmtWeightAuto, UnitSystem, weightUnitLabel, weightValueAuto } from '@/engine/units';
 
@@ -68,9 +68,41 @@ function buildStats(summary: WorkoutSummaryData, health: WorkoutHealthStats | nu
   return { primary, tiles, known: tiles.filter((t) => t.value !== '—') };
 }
 
+interface Split {
+  label: string;
+  secPerKm: number;
+  pace: string;
+}
+
+// Time for each full kilometre (or mile) of the run, from the GPS route. The
+// exact crossing point is interpolated between fixes, so a split isn't off by
+// however far apart two readings happened to be.
+function splitsFromRoute(route: RoutePoint[] | null, unitSystem: UnitSystem): Split[] {
+  if (!route || route.length < 2) return [];
+  const unitKm = unitSystem === 'imperial' ? 1.609344 : 1;
+  const out: Split[] = [];
+  let cum = 0;
+  let nextMark = unitKm;
+  let markTime = route[0].timestamp;
+  for (let i = 1; i < route.length; i++) {
+    const seg = haversineDistanceKm(route[i - 1], route[i]);
+    const dt = route[i].timestamp - route[i - 1].timestamp;
+    while (seg > 0 && cum + seg >= nextMark) {
+      const t = route[i - 1].timestamp + ((nextMark - cum) / seg) * dt;
+      const sec = (t - markTime) / 1000;
+      if (sec > 0) out.push({ label: String(out.length + 1), secPerKm: sec / unitKm, pace: fmtPaceFromSecPerKm(sec / unitKm, unitSystem) });
+      markTime = t;
+      nextMark += unitKm;
+    }
+    cum += seg;
+  }
+  return out;
+}
+
 function tileIcon(label: string) {
   const c = colors.neutral500;
   if (label === 'Time') return <TrClockIcon size={14} color={c} />;
+  if (label === 'Elevation') return <TrElevationIcon size={14} color={c} />;
   if (label === 'Avg pace') return <TrPaceIcon size={14} color={c} />;
   if (label === 'Calories') return <TrBurnIcon size={14} color={c} />;
   if (label === 'Steps') return <TrStepsIcon size={14} color={c} />;
@@ -109,9 +141,9 @@ function Visual({ summary, health, w, h, color, glow }: { summary: WorkoutSummar
   const height = hasRoute ? size : h;
   return (
     <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} fill="none">
-      {glow && <Path d={d} stroke={color} strokeOpacity={0.14} strokeWidth={16} strokeLinecap="round" strokeLinejoin="round" />}
-      {glow && <Path d={d} stroke={color} strokeOpacity={0.3} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />}
-      <Path d={d} stroke={color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+      {glow && <Path d={d} stroke={color} strokeOpacity={0.14} strokeWidth={24} strokeLinecap="round" strokeLinejoin="round" />}
+      {glow && <Path d={d} stroke={color} strokeOpacity={0.3} strokeWidth={13} strokeLinecap="round" strokeLinejoin="round" />}
+      <Path d={d} stroke={color} strokeWidth={hasRoute ? 6 : 4} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
   );
 }
@@ -315,6 +347,7 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
   const shotRef = useRef<ViewShot>(null);
 
   const { primary, tiles, known } = buildStats(summary, health, unitSystem);
+  const splits = useMemo(() => splitsFromRoute(summary.route, unitSystem), [summary.route, unitSystem]);
 
   const load = useCallback(async () => {
     if (!useHealthStore.getState().connected) return;
@@ -449,14 +482,52 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
 
         {isRun ? (
           <>
-            <View style={[styles.heroCard, { borderColor: accent }]}>
-              <Text style={styles.heroLbl}>{primary.label.toUpperCase()}</Text>
-              <Text style={styles.heroVal}>
-                {primary.value}
-                <Text style={styles.heroUnit}> {primary.unit}</Text>
-              </Text>
+            <View style={styles.statStrip}>
+              {[primary, tiles[0], tiles[1]].map((t) => (
+                <View key={t.label} style={styles.statStripItem}>
+                  <Text style={styles.statStripLbl}>{t.label.toUpperCase()}</Text>
+                  <Text style={styles.statStripVal}>
+                    {t.value}
+                    {t.unit ? <Text style={styles.tileUnit}> {t.unit}</Text> : null}
+                  </Text>
+                </View>
+              ))}
             </View>
-            <View style={styles.grid}>{tiles.map(renderTile)}</View>
+            {summary.route && summary.route.length >= 2 && (
+              <View style={[styles.card, { alignItems: 'center' }]}>
+                <Text style={[styles.cardTitle, { alignSelf: 'flex-start' }]}>Route</Text>
+                <RoutePolylineSvg route={summary.route} size={260} color={RUN_BLUE} strokeWidth={7} />
+              </View>
+            )}
+            <View style={styles.grid}>
+              {tiles.slice(2).map(renderTile)}
+              {summary.route && routeHasAltitude(summary.route) &&
+                renderTile({
+                  label: 'Elevation',
+                  value: String(Math.round(unitSystem === 'imperial' ? elevationGainM(summary.route) * 3.28084 : elevationGainM(summary.route))),
+                  unit: unitSystem === 'imperial' ? 'ft' : 'm',
+                })}
+            </View>
+            {splits.length > 0 && (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Splits</Text>
+                {splits.map((sp) => {
+                  const fastest = Math.min(...splits.map((x) => x.secPerKm));
+                  return (
+                    <View key={sp.label} style={styles.splitRow}>
+                      <Text style={styles.splitKm}>{sp.label}</Text>
+                      <View style={styles.splitTrack}>
+                        <View style={[styles.splitFill, { width: `${Math.max(18, (fastest / sp.secPerKm) * 100)}%` }]} />
+                      </View>
+                      <Text style={styles.splitPace}>
+                        {sp.pace}
+                        <Text style={styles.tileUnit}> /{distanceUnitLabel(unitSystem)}</Text>
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </>
         ) : (
           <>
@@ -501,13 +572,6 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
             <Svg width="100%" height={90} viewBox="0 0 300 90" preserveAspectRatio="none">
               <Path d={seriesPath(hr, 300, 90)} stroke={colors.red} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" fill="none" />
             </Svg>
-          </View>
-        )}
-
-        {isRun && summary.route && summary.route.length >= 2 && (
-          <View style={[styles.card, { alignItems: 'center' }]}>
-            <Text style={[styles.cardTitle, { alignSelf: 'flex-start' }]}>Route</Text>
-            <RoutePolylineSvg route={summary.route} size={170} color={RUN_BLUE} />
           </View>
         )}
 
@@ -573,6 +637,11 @@ const styles = StyleSheet.create({
   exRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   exHeadText: { fontFamily: fonts.semiBold, fontSize: 9.5, letterSpacing: 0.6, color: colors.neutral500 },
   exCell: { fontFamily: fonts.medium, fontSize: 14, color: colors.text },
+  splitRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 3 },
+  splitKm: { width: 20, fontFamily: fonts.semiBold, fontSize: 13, color: colors.neutral500 },
+  splitTrack: { flex: 1, height: 10, borderRadius: 5, backgroundColor: colors.bg, overflow: 'hidden' },
+  splitFill: { height: 10, borderRadius: 5, backgroundColor: RUN_BLUE },
+  splitPace: { minWidth: 86, textAlign: 'right', fontFamily: fonts.semiBold, fontSize: 13.5, color: colors.text },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: { width: '48.5%', backgroundColor: colors.surface, borderRadius: 20, padding: 16, gap: 8 },
   tileHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },

@@ -42,9 +42,9 @@ export function HelpSupportScreen() {
         <View>
           <Text style={[typography.sectionTitle, { marginBottom: 10 }]}>Contact Us</Text>
           <View style={styles.settingsList}>
-            <Pressable style={styles.settingsRow} onPress={() => Linking.openURL('mailto:aharake10@gmail.com?subject=Hyvo%20support')}>
+            <Pressable style={styles.settingsRow} onPress={() => Linking.openURL('mailto:aleveatelier@gmail.com?subject=Hyvo%20support')}>
               <TrBellIcon size={17} color={colors.accent200} />
-              <Text style={styles.settingsLabel}>aharake10@gmail.com</Text>
+              <Text style={styles.settingsLabel}>aleveatelier@gmail.com</Text>
             </Pressable>
           </View>
         </View>

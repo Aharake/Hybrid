@@ -2,7 +2,7 @@
   "expo": {
     "name": "Hyvo",
     "slug": "hybrid-zone",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#000000",
@@ -17,7 +17,7 @@
     },
     "android": {
       "backgroundColor": "#000000",
-      "package": "com.hybridzone.app",
+      "package": "com.aleveatelier.hyvo",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -31,13 +31,10 @@
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
         "android.permission.health.READ_HEART_RATE",
-        "android.permission.health.READ_SLEEP"
+        "android.permission.health.READ_SLEEP",
+        "android.permission.health.READ_RESTING_HEART_RATE"
       ],
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyBG4sL3zU5S9aHrTi6Lyfq8SUSuYvZdPCc"
-        }
-      }
+      "blockedPermissions": ["android.permission.RECORD_AUDIO"]
     },
     "web": {
       "favicon": "./assets/favicon.png"

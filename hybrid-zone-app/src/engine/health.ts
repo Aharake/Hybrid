@@ -56,6 +56,7 @@ const HC_PERMISSIONS = [
   { accessType: 'read', recordType: 'Steps' },
   { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
   { accessType: 'read', recordType: 'HeartRate' },
+  { accessType: 'read', recordType: 'RestingHeartRate' },
   { accessType: 'read', recordType: 'SleepSession' },
 ] as const;
 
@@ -305,6 +306,17 @@ async function readAndroid(): Promise<SnapshotData> {
     return records.flatMap((r) => r.samples.map((s) => ({ t: new Date(s.time).getTime(), bpm: s.beatsPerMinute })));
   });
 
+  // Resting heart rate written by the device or its app (WHOOP, Fitbit, watches), one value per day.
+  const restingDaily = await safe(async () => {
+    const { records } = await hc.readRecords('RestingHeartRate', { timeRangeFilter: range(hrFrom), ascendingOrder: true });
+    const out: (number | null)[] = new Array(WEEK_DAYS).fill(null);
+    records.forEach((r) => {
+      const i = Math.round((startOfDay(new Date(r.time).getTime()) - hrFrom) / DAY);
+      if (i >= 0 && i < WEEK_DAYS) out[i] = Math.round(r.beatsPerMinute);
+    });
+    return out;
+  });
+
   const sleepSpans = await safe(async () => {
     const { records } = await hc.readRecords('SleepSession', { timeRangeFilter: range(sleepWindowStart().getTime() - (WEEK_DAYS - 1) * DAY), ascendingOrder: true });
     return records.map((r) => ({ start: new Date(r.startTime).getTime(), end: new Date(r.endTime).getTime() }));
@@ -320,7 +332,7 @@ async function readAndroid(): Promise<SnapshotData> {
       weekActiveCalories: weekCalories !== null ? Math.round(weekCalories) : null,
       avgSleepMinutes: sleepSpans ? averageNightMinutes(sleepSpans) : null,
     },
-    hr ? restingByDay(hr, WEEK_DAYS, now.getTime()) : null,
+    mergeResting(restingDaily, hr ? restingByDay(hr, WEEK_DAYS, now.getTime()) : null),
   );
 }
 

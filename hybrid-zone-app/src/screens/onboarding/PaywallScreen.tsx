@@ -85,6 +85,13 @@ export function PaywallScreen() {
         ))}
       </View>
 
+      {isRevenueCatConfigured && (
+        <Text style={styles.fine}>
+          Hyvo Pro is an auto-renewing subscription. Payment is charged to your Apple ID or Google Play account at confirmation and renews
+          automatically unless you turn off auto-renew at least 24 hours before the period ends. Manage or cancel in your account
+          subscription settings.
+        </Text>
+      )}
       <Text style={styles.fine}>
         By continuing you agree to the{' '}
         <Text style={styles.finelink} onPress={() => Linking.openURL(`${API_BASE_URL}/terms`)}>

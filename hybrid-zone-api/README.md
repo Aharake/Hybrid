@@ -196,6 +196,4 @@ is the exception, populated by the RevenueCat webhook rather than the client.
 - Health data sync (Apple Health / Google Health)
 - Push notifications
 - Analytics
-- In-app account deletion (deletion is available on request via email today —
-  see the Privacy Policy — Apple's App Store review guidelines generally
-  expect an in-app deletion flow too, worth adding before submitting)
+- Revoking a Sign in with Apple token when an account is deleted (Apple's guidelines ask for it; it needs a Sign in with Apple key from your Apple developer account)

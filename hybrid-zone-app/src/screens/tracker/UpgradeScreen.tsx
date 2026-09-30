@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, radius, typography } from '@/theme/trackerTokens';
 import { TrChevLeftIcon, TrTrophyIcon } from '@/icons';
 import { useSubscriptionStore, isRevenueCatConfigured } from '@/store/subscriptionStore';
+import { API_BASE_URL } from '@/api/client';
 
 export function UpgradeScreen() {
   const navigation = useNavigation();
@@ -83,6 +84,26 @@ export function UpgradeScreen() {
             <Text style={styles.link}>{restoring ? 'Restoring…' : 'Restore purchases'}</Text>
           </Pressable>
         )}
+
+        {isRevenueCatConfigured && (
+          <View style={styles.legalBlock}>
+            <Text style={styles.legalText}>
+              Hyvo Pro is an auto-renewing subscription. Payment is charged to your Apple ID or Google Play account when you confirm the purchase, and
+              the subscription renews automatically at the same price unless you turn off auto-renew at least 24 hours before the end of the current
+              period. Manage or cancel it any time in Settings → your name → Subscriptions (iPhone) or in Google Play. Deleting the app or your Hyvo
+              account does not cancel it.
+            </Text>
+            <Text style={styles.legalText}>
+              <Text style={styles.legalLink} onPress={() => Linking.openURL(`${API_BASE_URL}/terms`)}>
+                Terms of Service
+              </Text>
+              {'  ·  '}
+              <Text style={styles.legalLink} onPress={() => Linking.openURL(`${API_BASE_URL}/privacy`)}>
+                Privacy Policy
+              </Text>
+            </Text>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -102,4 +123,7 @@ const styles = StyleSheet.create({
   upgradeBtnText: { fontFamily: fonts.bold, fontSize: 15, color: '#000' },
   linkRow: { alignItems: 'center', marginTop: 8 },
   link: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.neutral500, textDecorationLine: 'underline' },
+  legalBlock: { gap: 10, marginTop: 8 },
+  legalText: { fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16.5, color: colors.neutral500, textAlign: 'center' },
+  legalLink: { color: colors.accent200, textDecorationLine: 'underline' },
 });
