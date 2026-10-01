@@ -237,7 +237,7 @@ export function AccountTab() {
           <View style={styles.profileHeadRow}>
             <View>
               {user?.name ? <Text style={styles.name}>{user.name}</Text> : <Text style={[styles.name, { color: colors.accent200 }]} onPress={openNameEditor}>Add your name</Text>}
-              <Text style={styles.since}>{user?.email ?? ''}</Text>
+              {user?.email && !user.email.endsWith('@privaterelay.appleid.com') && <Text style={styles.since}>{user.email}</Text>}
             </View>
             <Pressable style={styles.editBtn} onPress={editProfile}>
               <TrPencilIcon size={13} color={colors.text} />

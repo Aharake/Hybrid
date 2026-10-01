@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -189,21 +189,34 @@ interface Week {
 
 // This week against the last five, for distance or for time on your feet.
 function WeeklySnapshot({ weeks, metric, onMetric, unitSystem }: { weeks: Week[]; metric: 'distance' | 'time'; onMetric: (m: 'distance' | 'time') => void; unitSystem: UnitSystem }) {
+  // null = showing the current week (the default); tapping any other bar
+  // pins the headline to that week instead, tapping it again goes back.
+  const [selected, setSelected] = useState<number | null>(null);
+  const lastIndex = weeks.length - 1;
+  const activeIndex = selected ?? lastIndex;
+  const isCurrent = activeIndex === lastIndex;
+
   const value = (w: Week) => (metric === 'distance' ? w.km : w.min);
-  const current = weeks[weeks.length - 1];
-  const previous = weeks[weeks.length - 2];
-  const now = value(current);
-  const before = value(previous);
+  const active = weeks[activeIndex];
+  const prior = weeks[activeIndex - 1];
+  const activeVal = value(active);
+  const priorVal = prior ? value(prior) : 0;
   const max = Math.max(0.01, ...weeks.map(value));
-  const headline = metric === 'distance' ? fmtDistance(now, unitSystem) : fmtMinutes(now);
+  const headline = metric === 'distance' ? fmtDistance(activeVal, unitSystem) : fmtMinutes(activeVal);
 
   let trend: { text: string; up: boolean } | null = null;
-  if (before > 0) {
-    const pct = Math.round(((now - before) / before) * 100);
-    trend = { text: `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct)}% vs last week`, up: pct >= 0 };
-  } else if (now > 0) {
-    trend = { text: 'Nothing logged last week', up: true };
+  if (priorVal > 0) {
+    const pct = Math.round(((activeVal - priorVal) / priorVal) * 100);
+    trend = { text: `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct)}% vs the week before`, up: pct >= 0 };
+  } else if (activeVal > 0 && prior) {
+    trend = { text: 'Nothing logged the week before', up: true };
   }
+
+  // Reset to "this week" when switching between Distance and Time, rather
+  // than silently showing an old week's number for the other metric.
+  useEffect(() => {
+    setSelected(null);
+  }, [metric]);
 
   return (
     <View style={styles.snapCard}>
@@ -223,20 +236,30 @@ function WeeklySnapshot({ weeks, metric, onMetric, unitSystem }: { weeks: Week[]
         {trend && <Text style={[styles.snapTrend, { color: trend.up ? colors.green : colors.neutral500 }]}>{trend.text}</Text>}
       </View>
       <Text style={styles.snapSub}>
-        {current.runs === 1 ? '1 run' : `${current.runs} runs`} this week
+        {active.runs === 1 ? '1 run' : `${active.runs} runs`} {isCurrent ? 'this week' : `· week of ${shortDate(active.start)}`}
       </Text>
 
       <View style={styles.snapBars}>
         {weeks.map((w, i) => {
           const v = value(w);
-          const isNow = i === weeks.length - 1;
+          const isNow = i === lastIndex;
+          const isSelected = i === activeIndex;
           return (
-            <View key={w.start} style={styles.snapCol}>
+            <Pressable key={w.start} style={styles.snapCol} onPress={() => setSelected((cur) => (cur === i ? null : i))} hitSlop={4}>
               <View style={styles.snapBarTrack}>
-                <View style={[styles.snapBar, { height: v > 0 ? Math.max(8, (v / max) * SNAP_BAR_H) : 4, backgroundColor: isNow ? RUN_LIGHT : v > 0 ? 'rgba(77,163,255,0.4)' : colors.neutral300 }]} />
+                <View
+                  style={[
+                    styles.snapBar,
+                    {
+                      height: v > 0 ? Math.max(8, (v / max) * SNAP_BAR_H) : 4,
+                      backgroundColor: isSelected ? RUN_LIGHT : v > 0 ? 'rgba(77,163,255,0.4)' : colors.neutral300,
+                    },
+                  ]}
+                />
               </View>
-              <Text style={[styles.snapLbl, isNow && styles.snapLblNow]}>{isNow ? 'This wk' : shortDate(w.start)}</Text>
-            </View>
+              <Text style={[styles.snapLbl, (isSelected || isNow) && styles.snapLblNow]}>{isNow ? 'This wk' : shortDate(w.start)}</Text>
+              {isSelected && !isNow && <View style={styles.snapDot} />}
+            </Pressable>
           );
         })}
       </View>
@@ -285,11 +308,12 @@ const styles = StyleSheet.create({
   snapTrend: { fontFamily: fonts.semiBold, fontSize: 12.5 },
   snapSub: { fontFamily: fonts.regular, fontSize: 12.5, color: colors.neutral500, marginTop: 2, marginBottom: 18 },
   snapBars: { flexDirection: 'row', gap: 8 },
-  snapCol: { flex: 1, alignItems: 'center', gap: 8 },
+  snapCol: { flex: 1, alignItems: 'center', gap: 8, position: 'relative' },
   snapBarTrack: { height: SNAP_BAR_H, justifyContent: 'flex-end', alignSelf: 'stretch', alignItems: 'center' },
   snapBar: { width: '72%', borderRadius: 7 },
   snapLbl: { fontFamily: fonts.medium, fontSize: 10, color: colors.neutral500 },
   snapLblNow: { color: colors.text, fontFamily: fonts.bold },
+  snapDot: { position: 'absolute', bottom: -9, width: 4, height: 4, borderRadius: 2, backgroundColor: RUN_LIGHT },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
   link: { fontSize: 12, color: colors.accent200, fontFamily: fonts.regular },
   metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

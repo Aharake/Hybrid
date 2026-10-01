@@ -12,12 +12,12 @@ import { useTrackerStore } from '@/store/trackerStore';
 import { distanceUnitLabel, distanceValueOnly, fmtDistance, fmtPaceFromSecPerKm } from '@/engine/units';
 import { DetailScreenHeader } from '@/components/tracker/DetailScreenHeader';
 import { DeleteActivityButton } from '@/components/tracker/DeleteActivityButton';
-import { activityWhen } from '@/engine/records';
+import { activityWhen, summaryFromRunActivity } from '@/engine/records';
 import type { TrackerStackParamList } from '@/navigation/trackerTypes';
 
 export function RunDetailScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<TrackerStackParamList>>();
-  const { activities, activeActivityIndex, unitSystem, openRunShareCard } = useTrackerStore();
+  const { activities, activeActivityIndex, unitSystem, openWorkoutSummary } = useTrackerStore();
   const a = activeActivityIndex !== null ? activities[activeActivityIndex] : null;
 
   if (!a || !a.runStats) return <SafeAreaView style={styles.screen} edges={['top']} />;
@@ -33,8 +33,8 @@ export function RunDetailScreen() {
             <Pressable
               style={styles.iconBtnRound}
               onPress={() => {
-                openRunShareCard();
-                navigation.navigate('RunShareCard');
+                const summary = summaryFromRunActivity(a);
+                if (summary) openWorkoutSummary(summary, true);
               }}
             >
               <TrShareIcon size={16} color={colors.text} />

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -8,12 +8,14 @@ import { TrLayersIcon, TrPlayIcon } from '@/icons';
 import { fmtClock } from '@/engine/trackerFormat';
 import { distanceUnitLabel, distanceValueOnly, fmtDistance, fmtPaceFromSecPerKm, UnitSystem } from '@/engine/units';
 import { useTrackerStore } from '@/store/trackerStore';
+import { getRunPreviewLocation } from '@/engine/locationTask';
 import { RunRouteMap } from './RunRouteMap';
 
 const HANDLE_SIZE = 58;
 
 function SlideToStart({ onComplete }: { onComplete: () => void }) {
   const [trackWidth, setTrackWidth] = React.useState(0);
+  const [completed, setCompleted] = React.useState(false);
   const translateX = useSharedValue(0);
 
   // The 150ms delay has to happen here, on the JS thread, once runOnJS has
@@ -21,7 +23,10 @@ function SlideToStart({ onComplete }: { onComplete: () => void }) {
   // (i.e. wrapping runOnJS itself in a setTimeout) runs runOnJS outside the
   // worklet's own synchronous call, which trips Reanimated's reentrancy
   // guard and crashes the app (SIGABRT, WorkletsReentrancyCheck).
-  const complete = () => setTimeout(onComplete, 150);
+  const complete = () => {
+    setCompleted(true);
+    setTimeout(onComplete, 150);
+  };
 
   const gesture = Gesture.Pan()
     .onUpdate((e) => {
@@ -45,8 +50,8 @@ function SlideToStart({ onComplete }: { onComplete: () => void }) {
     <View style={styles.slideTrack} onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}>
       <Animated.View style={[styles.slideFill, fillStyle]} />
       <View style={styles.slideLabel} pointerEvents="none">
-        <Text style={styles.slideLabelText}>Slide to Start</Text>
-        <Text style={styles.slideLabelArrows}>{'›››'}</Text>
+        <Text style={styles.slideLabelText}>{completed ? 'Starting your run…' : 'Slide to Start'}</Text>
+        {!completed && <Text style={styles.slideLabelArrows}>{'›››'}</Text>}
       </View>
       <GestureDetector gesture={gesture}>
         <Animated.View style={[styles.slideHandle, handleStyle]}>
@@ -81,6 +86,21 @@ export function RunTrackerOverlay() {
     gpsIssue,
   } = useTrackerStore();
   const insets = useSafeAreaInsets();
+  const [previewLoc, setPreviewLoc] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  useEffect(() => {
+    if (!runTrackerOpen) {
+      setPreviewLoc(null);
+      return;
+    }
+    let cancelled = false;
+    getRunPreviewLocation().then((loc) => {
+      if (!cancelled) setPreviewLoc(loc);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [runTrackerOpen]);
 
   const handleDiscard = () => {
     if (run.elapsed > 5) {
@@ -169,9 +189,11 @@ export function RunTrackerOverlay() {
       <View style={styles.mapFull}>
         {run.route.length > 1 ? (
           <RunRouteMap route={run.route} live style={StyleSheet.absoluteFill} />
+        ) : previewLoc ? (
+          <RunRouteMap route={run.route} live previewCenter={previewLoc} style={StyleSheet.absoluteFill} />
         ) : (
           <View style={styles.mapBgWrap}>
-            <Text style={styles.mapBgText}>{isActive ? 'Finding GPS…' : 'Live map'}</Text>
+            <Text style={styles.mapBgText}>{isActive ? 'Finding GPS…' : gpsIssue === 'denied' ? 'Location access needed' : 'Loading map…'}</Text>
           </View>
         )}
 
@@ -189,9 +211,11 @@ export function RunTrackerOverlay() {
         </View>
 
         {runStatus === 'idle' && (
-          <Pressable style={[styles.goalPill, { top: insets.top + 64 }]} onPress={openRunSetup}>
-            <Text style={styles.goalPillText}>{goalPillText}</Text>
-          </Pressable>
+          <View style={[styles.goalPillWrap, { top: insets.top + 64 }]} pointerEvents="box-none">
+            <Pressable style={styles.goalPill} onPress={openRunSetup}>
+              <Text style={styles.goalPillText}>{goalPillText}</Text>
+            </Pressable>
+          </View>
         )}
 
         {isActive && (
@@ -294,7 +318,8 @@ const styles = StyleSheet.create({
   statusPills: { gap: 8, alignItems: 'flex-end' },
   statusPill: { backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11 },
   statusPillText: { color: '#fff', fontSize: 11, fontFamily: fonts.semiBold },
-  goalPill: { position: 'absolute', top: 70, left: '50%', marginLeft: -60, backgroundColor: colors.text, borderRadius: 999, paddingVertical: 9, paddingHorizontal: 18, zIndex: 2 },
+  goalPillWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 2 },
+  goalPill: { backgroundColor: colors.text, borderRadius: 999, paddingVertical: 9, paddingHorizontal: 18 },
   goalPillText: { color: colors.bg, fontSize: 12.5, fontFamily: fonts.semiBold, textAlign: 'center' },
   distOverlay: { position: 'absolute', left: 0, right: 0, top: 110, alignItems: 'center', zIndex: 2 },
   distNum: { fontFamily: fonts.bold, fontSize: 56, color: '#fff', lineHeight: 58 },

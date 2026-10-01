@@ -24,7 +24,6 @@ export type TrackerStackParamList = {
   StrengthDetail: undefined;
   OtherActivityDetail: undefined;
   LogActivityForm: undefined;
-  RunShareCard: undefined;
 };
 
 export const TAB_ROUTES = ['HomeTab', 'StrengthTab', 'RunningTab', 'AccountTab'] as const;

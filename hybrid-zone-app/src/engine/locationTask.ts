@@ -55,3 +55,21 @@ export async function stopRunTracking(): Promise<void> {
   const already = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
   if (already) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
 }
+
+// A one-shot current position for the live-map preview shown before a run
+// starts — separate from startRunTracking's background subscription, since
+// this runs the instant the run screen opens and never records a route.
+// Requests only "when in use", not "always": recording in the background
+// isn't needed until the person actually starts the run.
+export async function getRunPreviewLocation(): Promise<{ latitude: number; longitude: number } | null> {
+  try {
+    const perm = await Location.requestForegroundPermissionsAsync();
+    if (!perm.granted) return null;
+    const last = await Location.getLastKnownPositionAsync().catch(() => null);
+    if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude };
+    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+  } catch {
+    return null;
+  }
+}

@@ -20,6 +20,7 @@ export interface StatsInput {
   runSessions: Partial<Record<DayLabel, RunSessionPlan>>;
   health: HealthSnapshot | null;
   unitSystem: UnitSystem;
+  programCreatedAt: number | null; // when the account's program was first created — the clock the rings' "ready after N days" waits are measured from
 }
 
 export interface MetricResult {
@@ -129,26 +130,67 @@ export interface RingValues {
   goal: number; // 0-1
   consistency: number; // 0-1
   volume: number; // 0+ (over 1 = more than last week)
+  // The up-to-3 components that made up `goal` this week — null for one that
+  // isn't part of the mix (no running scheduled, or steps not connected), so
+  // the breakdown popup knows whether to show 1, 2 or 3 rings.
+  goalParts: { lift: number | null; run: number | null; steps: number | null };
+  // False while the account is still too new for this measure to mean
+  // anything yet — see weeklyGoalWeights' siblings below for the wait times.
+  consistencyReady: boolean;
+  volumeReady: boolean;
+  daysTracked: number; // days since the program was created — what the two waits above are measured against
 }
 
+// How much each of lifts/running/steps counts toward the Weekly Goal, based on
+// which of them actually apply to this account. Running only counts if it's
+// in the program; steps only count once Health is connected. These are fixed
+// product numbers, not a formula — e.g. dropping running isn't "redistribute
+// its 40% proportionally", it's a specific 70/30 lift/steps split.
+function weeklyGoalWeights(hasLift: boolean, hasRun: boolean, hasSteps: boolean): { lift: number; run: number; steps: number } {
+  if (hasLift && hasRun && hasSteps) return { lift: 0.4, run: 0.4, steps: 0.2 };
+  if (hasLift && hasSteps) return { lift: 0.7, run: 0, steps: 0.3 }; // no run scheduled
+  if (hasLift && hasRun) return { lift: 0.5, run: 0.5, steps: 0 }; // no steps connected
+  if (hasLift) return { lift: 1, run: 0, steps: 0 }; // only lifts
+  // No lifts scheduled (a running-only account) — mirror the rules above with lift/run swapped.
+  if (hasRun && hasSteps) return { lift: 0, run: 0.7, steps: 0.3 };
+  if (hasRun) return { lift: 0, run: 1, steps: 0 };
+  if (hasSteps) return { lift: 0, run: 0, steps: 1 };
+  return { lift: 0, run: 0, steps: 0 }; // nothing to track yet
+}
+
+// A measure needs the account to have existed at least this many days before
+// it's shown as a real number — otherwise a brand-new account would see a
+// consistency or trend figure built from a day or two of data, which reads as
+// broken rather than just "not enough history yet". The Weekly Goal has no
+// such wait: it's just this week's progress, meaningful from day one.
+export const CONSISTENCY_READY_DAYS = 7;
+export const VOLUME_READY_DAYS = 3;
+
 export function computeRings(input: StatsInput, weekOffset: number): RingValues {
-  const { now, activities, workoutLogs, sessions, runSessions, health } = input;
+  const { now, activities, workoutLogs, sessions, runSessions, health, programCreatedAt } = input;
   const { start, end } = weekBounds(now, weekOffset);
   const inWeek = activities.filter((a) => inRange(a.date, start, end));
   const planned = plannedCounts(sessions, runSessions);
 
-  // Weekly goal: average of workouts, runs and (when Health is connected)
-  // steps, each capped at 100% so one can't cover for another.
-  const parts: number[] = [];
-  if (planned.strength > 0) parts.push(Math.min(1, inWeek.filter((a) => a.type === 'strength').length / planned.strength));
-  if (planned.runs > 0) parts.push(Math.min(1, inWeek.filter((a) => a.type === 'running').length / planned.runs));
-  // Steps count against the daily goal for every day of the week so far, so
-  // this stays a weekly measure like the workouts and runs above.
-  if (weekOffset === 0 && health?.weekSteps != null) {
-    const daysSoFar = Math.max(1, daysBetween(start, now) + 1);
-    parts.push(Math.min(1, health.weekSteps / (STEP_GOAL * daysSoFar)));
-  }
-  const goal = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
+  const hasLift = planned.strength > 0;
+  const hasRun = planned.runs > 0;
+  const hasSteps = weekOffset === 0 && health?.weekSteps != null;
+
+  const liftPct = hasLift ? Math.min(1, inWeek.filter((a) => a.type === 'strength').length / planned.strength) : null;
+  const runPct = hasRun ? Math.min(1, inWeek.filter((a) => a.type === 'running').length / planned.runs) : null;
+  // Steps count against the daily goal for every day of the week so far
+  // (averaged, not reset each day), so this stays a weekly measure like the
+  // workouts and runs above — a slow Monday is balanced out by a big Tuesday.
+  const daysSoFar = Math.max(1, daysBetween(start, now) + 1);
+  const stepsPct = hasSteps ? Math.min(1, health!.weekSteps! / (STEP_GOAL * daysSoFar)) : null;
+
+  const weights = weeklyGoalWeights(hasLift, hasRun, hasSteps);
+  const goal = (liftPct ?? 0) * weights.lift + (runPct ?? 0) * weights.run + (stepsPct ?? 0) * weights.steps;
+  const goalParts = { lift: liftPct, run: runPct, steps: stepsPct };
+
+  const daysTracked = programCreatedAt != null ? daysBetween(programCreatedAt, now) : 0;
+  const consistencyReady = daysTracked >= CONSISTENCY_READY_DAYS;
+  const volumeReady = daysTracked >= VOLUME_READY_DAYS;
 
   // Consistency: scheduled sessions done ON their scheduled day.
   let slots = 0;
@@ -174,7 +216,7 @@ export function computeRings(input: StatsInput, weekOffset: number): RingValues 
   const prevVol = volumeKg(workoutLogs, prev.start, prev.end);
   const volume = prevVol > 0 ? thisVol / prevVol : thisVol > 0 ? 1 : 0;
 
-  return { goal, consistency, volume };
+  return { goal, consistency, volume, goalParts, consistencyReady, volumeReady, daysTracked };
 }
 
 // Account → Data Highlights: your best consistency and peak training load

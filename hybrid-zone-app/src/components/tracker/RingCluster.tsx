@@ -6,6 +6,7 @@ import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { TrChevRightIcon } from '@/icons';
 import { useTrackerStore } from '@/store/trackerStore';
 import { useRingValues } from '@/hooks/useStats';
+import { CONSISTENCY_READY_DAYS, VOLUME_READY_DAYS } from '@/engine/stats';
 
 // A tick-mark dial for the weekly goal and segmented bars for the other two
 // measures — deliberately not concentric rings.
@@ -71,20 +72,42 @@ function SegmentBar({ pct, color, dim }: { pct: number; color: string; dim: stri
   );
 }
 
-function MeasureRow({ label, value, pct, color, dim, onPress }: { label: string; value: number; pct: number; color: string; dim: string; onPress: () => void }) {
+function MeasureRow({
+  label,
+  value,
+  pct,
+  color,
+  dim,
+  ready,
+  daysLeft,
+  onPress,
+}: {
+  label: string;
+  value: number;
+  pct: number;
+  color: string;
+  dim: string;
+  ready: boolean;
+  daysLeft: number;
+  onPress: () => void;
+}) {
   return (
     <Pressable style={styles.measure} onPress={onPress}>
       <View style={styles.measureTop}>
         <Text style={styles.measureLabel}>{label}</Text>
         <View style={styles.measureRight}>
-          <Text style={styles.measureVal}>
-            {Math.round(value)}
-            <Text style={styles.measurePct}>%</Text>
-          </Text>
+          {ready ? (
+            <Text style={styles.measureVal}>
+              {Math.round(value)}
+              <Text style={styles.measurePct}>%</Text>
+            </Text>
+          ) : (
+            <Text style={styles.measureBuilding}>{daysLeft === 1 ? '1 day left' : `${daysLeft} days left`}</Text>
+          )}
           <TrChevRightIcon size={11} color={colors.neutral500} />
         </View>
       </View>
-      <SegmentBar pct={pct} color={color} dim={dim} />
+      <SegmentBar pct={ready ? pct : 0} color={color} dim={dim} />
     </Pressable>
   );
 }
@@ -124,6 +147,8 @@ export function RingCluster() {
           pct={consistencyNum / 100}
           color={colors.rcConsistency}
           dim={colors.rcConsistencyDim}
+          ready={data.consistencyReady}
+          daysLeft={Math.max(0, CONSISTENCY_READY_DAYS - data.daysTracked)}
           onPress={() => openMetricDetail('consistency')}
         />
         <MeasureRow
@@ -132,6 +157,8 @@ export function RingCluster() {
           pct={volumeNum / 100}
           color={colors.rcVolume}
           dim={colors.rcVolumeDim}
+          ready={data.volumeReady}
+          daysLeft={Math.max(0, VOLUME_READY_DAYS - data.daysTracked)}
           onPress={() => openMetricDetail('volume')}
         />
       </View>
@@ -153,6 +180,7 @@ const styles = StyleSheet.create({
   measureRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   measureVal: { fontFamily: fonts.semiBold, fontSize: 17, color: colors.text },
   measurePct: { fontSize: 11, color: colors.neutral500 },
+  measureBuilding: { fontFamily: fonts.medium, fontSize: 12, color: colors.neutral500, fontStyle: 'italic' },
   segRow: { flexDirection: 'row', gap: 4 },
   seg: { flex: 1, height: 8, borderRadius: 3 },
 });

@@ -46,6 +46,7 @@ export interface ProgramResponse {
   split: string;
   sessions: ProgramSessionResponse[];
   runDays: ProgramRunDayPayload[] | null;
+  createdAt: string; // when the program was first created — the account's "tracking start" date
 }
 
 export async function getProgram(): Promise<ProgramResponse | null> {

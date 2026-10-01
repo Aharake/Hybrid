@@ -150,13 +150,18 @@ function Visual({ summary, health, w, h, color, glow }: { summary: WorkoutSummar
 
 /* ---------------- share designs ---------------- */
 
-type Design = 'poster' | 'grid' | 'neon' | 'photo';
+type Design = 'detailed' | 'grid' | 'neon' | 'photo';
 const DESIGNS: [Design, string][] = [
-  ['poster', 'Poster'],
+  ['detailed', 'Details'],
   ['grid', 'Stats'],
   ['neon', 'Neon'],
   ['photo', 'Photo'],
 ];
+
+interface DetailRow {
+  left: string;
+  right: string;
+}
 
 interface CanvasProps {
   design: Design;
@@ -166,6 +171,8 @@ interface CanvasProps {
   primary: Item;
   known: Item[];
   photoUri: string | null;
+  detailRows: DetailRow[];
+  detailOverflow: number;
 }
 
 function Brand({ u, color = '#fff' }: { u: number; color?: string }) {
@@ -193,40 +200,65 @@ function StatRow({ items, u, color = '#fff', dim = 'rgba(255,255,255,0.6)' }: { 
   );
 }
 
-function ShareCanvas({ design, w, summary, health, primary, known, photoUri }: CanvasProps) {
+function ShareCanvas({ design, w, summary, health, primary, known, photoUri, detailRows, detailOverflow }: CanvasProps) {
   const u = w / 360;
   const h = (w * 16) / 9;
   const isRun = summary.kind === 'run';
   const pad = 26 * u;
   const secondary = known.filter((k) => k.label !== primary.label);
 
-  if (design === 'poster') {
-    const [c1, c2] = isRun ? ['#1553b8', '#6a2cd8'] : ['#f2994a', '#c2185b'];
+  if (design === 'detailed') {
     return (
-      <View style={{ width: w, height: h, overflow: 'hidden', padding: pad, justifyContent: 'space-between' }}>
-        <Svg style={StyleSheet.absoluteFill} width={w} height={h}>
-          <Defs>
-            <LinearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor={c1} />
-              <Stop offset="1" stopColor={c2} />
-            </LinearGradient>
-          </Defs>
-          <Rect width={w} height={h} fill="url(#pg)" />
-          <Circle cx={w * 0.92} cy={h * 0.1} r={w * 0.55} fill="#fff" fillOpacity={0.07} />
-          <Circle cx={w * 0.05} cy={h * 0.86} r={w * 0.42} fill="#000" fillOpacity={0.12} />
-        </Svg>
+      <View style={{ width: w, height: h, backgroundColor: '#0d0d0f', padding: pad, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Brand u={u} />
-          <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, color: 'rgba(255,255,255,0.8)' }}>{fmtWhen(summary.endedAt)}</Text>
+          <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, color: 'rgba(255,255,255,0.55)' }}>{fmtWhen(summary.endedAt)}</Text>
         </View>
-        <View>
-          <Text style={{ fontFamily: fonts.semiBold, fontSize: 13 * u, letterSpacing: 1.5 * u, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase' }}>{summary.title}</Text>
-          <Text style={{ fontFamily: fonts.extraBold, fontSize: 104 * u, lineHeight: 112 * u, color: '#fff', letterSpacing: -3 * u, marginTop: 6 * u }} numberOfLines={1} adjustsFontSizeToFit>
-            {primary.value}
-          </Text>
-          <Text style={{ fontFamily: fonts.semiBold, fontSize: 22 * u, color: 'rgba(255,255,255,0.9)' }}>{primary.unit}</Text>
+
+        <Text style={{ fontFamily: fonts.semiBold, fontSize: 12.5 * u, letterSpacing: 1.2 * u, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', marginTop: 20 * u }} numberOfLines={1}>
+          {summary.title}
+        </Text>
+        <Text style={{ fontFamily: fonts.extraBold, fontSize: 46 * u, color: '#fff', letterSpacing: -1 * u, marginTop: 2 * u }}>
+          {primary.value}
+          <Text style={{ fontFamily: fonts.semiBold, fontSize: 18 * u, color: 'rgba(255,255,255,0.6)' }}> {primary.unit}</Text>
+        </Text>
+
+        <View style={{ marginTop: 16 * u }}>
+          <StatRow items={secondary.slice(0, 3)} u={u} />
         </View>
-        <StatRow items={secondary.slice(0, 3)} u={u} />
+
+        <View style={{ marginTop: 18 * u, gap: 8 * u }}>
+          {detailRows.length === 0 && (
+            <Text style={{ fontFamily: fonts.regular, fontSize: 12 * u, color: 'rgba(255,255,255,0.45)' }}>
+              {isRun ? 'No GPS splits recorded.' : 'No sets recorded.'}
+            </Text>
+          )}
+          {detailRows.map((r, i) => (
+            <View
+              key={i}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10 * u,
+                paddingVertical: 9 * u,
+                paddingHorizontal: 13 * u,
+                backgroundColor: 'rgba(255,255,255,0.07)',
+                borderRadius: 13 * u,
+              }}
+            >
+              <Text style={{ flex: 1, fontFamily: fonts.semiBold, fontSize: 12.5 * u, color: '#fff' }} numberOfLines={1}>
+                {r.left}
+              </Text>
+              <Text style={{ fontFamily: fonts.medium, fontSize: 11.5 * u, color: 'rgba(255,255,255,0.75)' }} numberOfLines={1}>
+                {r.right}
+              </Text>
+            </View>
+          ))}
+          {detailOverflow > 0 && (
+            <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, color: 'rgba(255,255,255,0.45)', textAlign: 'center' }}>+{detailOverflow} more</Text>
+          )}
+        </View>
       </View>
     );
   }
@@ -340,7 +372,7 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
   const [health, setHealth] = useState<WorkoutHealthStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'summary' | 'share'>(startInShare ? 'share' : 'summary');
-  const [design, setDesign] = useState<Design>('poster');
+  const [design, setDesign] = useState<Design>('detailed');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [previewW, setPreviewW] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -348,6 +380,18 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
 
   const { primary, tiles, known } = buildStats(summary, health, unitSystem);
   const splits = useMemo(() => splitsFromRoute(summary.route, unitSystem), [summary.route, unitSystem]);
+  // The exercise/split breakdown for the "Details" share design — capped so
+  // a long workout or run still fits the card, with the rest counted below it.
+  const detailRows = useMemo<DetailRow[]>(() => {
+    if (summary.kind === 'run') {
+      return splits.slice(0, 8).map((sp) => ({ left: `Km ${sp.label}`, right: sp.pace }));
+    }
+    return summary.exerciseSets.slice(0, 6).map((ex) => ({
+      left: ex.name,
+      right: ex.sets.map((st) => `${weightValueAuto(st.weight, unitSystem)}×${st.reps}`).join('  '),
+    }));
+  }, [summary, splits, unitSystem]);
+  const detailOverflow = summary.kind === 'run' ? Math.max(0, splits.length - 8) : Math.max(0, summary.exerciseSets.length - 6);
 
   const load = useCallback(async () => {
     if (!useHealthStore.getState().connected) return;
@@ -385,15 +429,23 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
   };
 
   const pickPhoto = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Photo access needed', 'Allow photo library access to add a background image.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85 });
-    if (!result.canceled && result.assets[0]) {
-      setPhotoUri(result.assets[0].uri);
-      setDesign('photo');
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Photo access needed', 'Allow photo library access to add a background image.');
+        return;
+      }
+      // Clearing the current photo first guarantees the picker opens fresh
+      // (rather than against whatever the last pick left behind) — a photo
+      // already set shouldn't ever block choosing a different one.
+      setPhotoUri(null);
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, allowsMultipleSelection: false });
+      if (!result.canceled && result.assets[0]) {
+        setPhotoUri(result.assets[0].uri);
+        setDesign('photo');
+      }
+    } catch {
+      Alert.alert("Couldn't open your photos", 'Please try again.');
     }
   };
 
@@ -437,7 +489,17 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
           <View style={styles.previewFrame} onLayout={(e) => setPreviewW(e.nativeEvent.layout.width)}>
             {previewW > 0 && (
               <ViewShot ref={shotRef} options={{ format: 'png', quality: 1 }}>
-                <ShareCanvas design={design} w={previewW} summary={summary} health={health} primary={primary} known={known} photoUri={photoUri} />
+                <ShareCanvas
+                  design={design}
+                  w={previewW}
+                  summary={summary}
+                  health={health}
+                  primary={primary}
+                  known={known}
+                  photoUri={photoUri}
+                  detailRows={detailRows}
+                  detailOverflow={detailOverflow}
+                />
               </ViewShot>
             )}
           </View>

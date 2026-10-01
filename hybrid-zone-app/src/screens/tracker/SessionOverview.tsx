@@ -237,7 +237,7 @@ export function SessionOverview() {
                       <>
                         <View style={styles.setHead}>
                           <Text style={[styles.setHeadText, { width: 16 }]}>SET</Text>
-                          <Text style={[styles.setHeadText, { width: 72 }]}>PREVIOUS</Text>
+                          <Text style={[styles.setHeadText, { width: 62 }]}>PREVIOUS</Text>
                           <Text style={[styles.setHeadText, { flex: 1 }]}>REPS</Text>
                           <Text style={[styles.setHeadText, { flex: 1 }]}>WEIGHT</Text>
                           <View style={{ width: 28 }} />
@@ -375,14 +375,14 @@ const styles = StyleSheet.create({
   exSets: { fontSize: 13, color: colors.neutral500, fontFamily: fonts.regular },
   exDel: { padding: 6 },
   exIconBtn: { padding: 4 },
-  exExpand: { paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12, gap: 8, borderTopWidth: 1, borderTopColor: colors.divider },
-  setRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  setHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  exExpand: { paddingHorizontal: 10, paddingBottom: 16, paddingTop: 12, gap: 8, borderTopWidth: 1, borderTopColor: colors.divider },
+  setRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  setHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
   setHeadText: { fontSize: 9.5, letterSpacing: 0.6, color: colors.neutral500, fontFamily: fonts.semiBold },
   setRowDone: { backgroundColor: 'rgba(34,197,94,0.12)', borderRadius: 12, marginHorizontal: -6, paddingHorizontal: 6, paddingVertical: 4 },
   setNum: { width: 16, fontSize: 13, color: colors.text, fontFamily: fonts.semiBold },
-  setPrev: { width: 72, fontSize: 11.5, color: colors.neutral500, fontFamily: fonts.regular },
-  setField: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.bg, borderRadius: radius.sm, paddingVertical: 9, paddingHorizontal: 12 },
+  setPrev: { width: 62, fontSize: 11.5, color: colors.neutral500, fontFamily: fonts.regular },
+  setField: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.bg, borderRadius: radius.sm, paddingVertical: 10, paddingHorizontal: 10 },
   setFieldInput: { flex: 1, fontFamily: fonts.semiBold, fontSize: 14.5, padding: 0, color: colors.text },
   unit: { fontSize: 11, color: colors.neutral500, marginLeft: 6 },
   setCheck: { width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: colors.neutral400, alignItems: 'center', justifyContent: 'center' },

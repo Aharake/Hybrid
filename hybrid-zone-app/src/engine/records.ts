@@ -128,6 +128,28 @@ export function groupSetsByExercise(rows: { exerciseName: string; reps: number; 
   return [...byName.entries()].map(([name, sets]) => ({ name, sets }));
 }
 
+// Rebuilds the summary for a saved run, so an old one can be shared too.
+export function summaryFromRunActivity(a: ActivityItem): WorkoutSummaryData | null {
+  const rs = a.runStats;
+  if (!rs) return null;
+  const durationSec = rs.duration * 60;
+  return {
+    kind: 'run',
+    title: a.title,
+    startedAt: a.date - durationSec * 1000,
+    endedAt: a.date,
+    durationSec,
+    distanceKm: rs.distance,
+    route: rs.route ?? null,
+    maxSpeedKmh: rs.maxSpeed,
+    estCalories: Math.round(rs.calories) || null,
+    sets: 0,
+    exercises: 0,
+    volumeKg: 0,
+    exerciseSets: [],
+  };
+}
+
 // Rebuilds the summary for a saved strength workout, so an old one can be shared too.
 export function summaryFromStrengthActivity(a: ActivityItem): WorkoutSummaryData | null {
   const ss = a.strengthStats;

@@ -89,7 +89,7 @@ export function HomeTab() {
 
         <View>
           <View style={styles.rowBetween}>
-            <Text style={typography.sectionTitle}>Weekly Overview</Text>
+            <Text style={typography.sectionTitle}>Overview</Text>
             <TrackerLink
               label="View All"
               onPress={() => {

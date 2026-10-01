@@ -26,7 +26,6 @@ import { TrackerOverlays } from '@/components/tracker/TrackerOverlays';
 import { StrengthDetailScreen } from '@/screens/tracker/StrengthDetailScreen';
 import { OtherActivityDetailScreen } from '@/screens/tracker/OtherActivityDetailScreen';
 import { LogActivityFormScreen } from '@/screens/tracker/LogActivityFormScreen';
-import { RunShareCardScreen } from '@/screens/tracker/RunShareCardScreen';
 
 const Stack = createNativeStackNavigator<TrackerStackParamList>();
 
@@ -60,7 +59,6 @@ export function TrackerNavigator() {
       <Stack.Screen name="StrengthDetail" component={StrengthDetailScreen} />
       <Stack.Screen name="OtherActivityDetail" component={OtherActivityDetailScreen} />
       <Stack.Screen name="LogActivityForm" component={LogActivityFormScreen} />
-      <Stack.Screen name="RunShareCard" component={RunShareCardScreen} />
     </Stack.Navigator>
     <TrackerOverlays />
     </View>

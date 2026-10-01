@@ -14,6 +14,8 @@ interface Props {
   route: RoutePoint[];
   live?: boolean; // street-level follow camera instead of fitting the whole route
   style?: object;
+  // Shown (as a plain live-location map, no route yet) before recording starts.
+  previewCenter?: { latitude: number; longitude: number } | null;
 }
 
 // Street-level "navigation" camera for a live run: close in, tilted so roads
@@ -45,7 +47,7 @@ function bearingDeg(a: RoutePoint, b: RoutePoint): number {
 // Wraps react-native-maps with the app's dark styling. Android uses Google
 // Maps (needs EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY); iOS uses Apple's own Maps,
 // no key required. Without the Android key it shows the route as a drawing.
-export function RunRouteMap({ route, live, style }: Props) {
+export function RunRouteMap({ route, live, style, previewCenter }: Props) {
   const mapRef = useRef<MapView>(null);
   const headingRef = useRef(0);
 
@@ -68,7 +70,24 @@ export function RunRouteMap({ route, live, style }: Props) {
     }
   }, [route, live]);
 
-  if (route.length === 0) return <View style={[styles.empty, style]} />;
+  if (route.length === 0) {
+    // No recorded route yet — if we know roughly where the person is, show a
+    // real live map centered there (their position as a blue dot) rather than
+    // an empty box, so the map feels live from the moment the screen opens.
+    if (!previewCenter || (Platform.OS === 'android' && !ANDROID_MAPS_AVAILABLE)) return <View style={[styles.empty, style]} />;
+    return (
+      <MapView
+        style={style ?? styles.fill}
+        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        mapType="standard"
+        userInterfaceStyle="dark"
+        showsUserLocation
+        followsUserLocation={false}
+        showsCompass={false}
+        initialRegion={{ latitude: previewCenter.latitude, longitude: previewCenter.longitude, latitudeDelta: 0.008, longitudeDelta: 0.008 }}
+      />
+    );
+  }
 
   if (Platform.OS === 'android' && !ANDROID_MAPS_AVAILABLE) {
     return (

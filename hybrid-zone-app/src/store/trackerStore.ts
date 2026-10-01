@@ -8,7 +8,7 @@ import * as SecureStore from 'expo-secure-store';
 import type { DayLabel } from '@/engine/calendar';
 import { getTodayShort, DAY_LABELS, DAY_FULL_MAP, FULL_TO_DAY_LABEL, isViewingToday as calendarIsViewingToday } from '@/engine/calendar';
 import { saveWorkoutLog, getWorkoutLogs, deleteWorkoutLog, type WorkoutLogResponse } from '@/api/workoutLogs';
-import { lastLoggedWeight } from '@/engine/exerciseHistory';
+import { buildExerciseHistory, lastLoggedWeight } from '@/engine/exerciseHistory';
 import { weightStepFor, weightToKg, fmtDistance, distanceToKm, type UnitSystem } from '@/engine/units';
 import { haversineDistanceKm, isPlausibleMovement, RoutePoint } from '@/engine/gps';
 import { startRunTracking, stopRunTracking } from '@/engine/locationTask';
@@ -381,15 +381,15 @@ export const LOGGABLE_ACTIVITY_TYPES: { id: ActivityType; label: string; default
 export const METRIC_INFO: Record<'goal' | 'consistency' | 'volume', { title: string; body: string }> = {
   goal: {
     title: 'Weekly Goal',
-    body: "The average of your progress across this week's plan — strength sessions completed, runs completed and, when Apple Health or Health Connect is connected, steps toward 10,000 — each capped at 100% so overachieving one can't cover for missing another.",
+    body: "A weighted mix of this week's strength sessions, runs and steps — 40% lifts, 40% running, 20% steps when all three apply. Drop running and it's 70% lifts / 30% steps; drop steps and it's 50/50 lifts and running; with only lifts scheduled, it's 100% lifts. Steps count toward your average daily target across the week, so a slow day is balanced out by a strong one. Starts tracking immediately.",
   },
   consistency: {
     title: 'Consistency',
-    body: 'Of the sessions your program schedules this week, how many you completed on the day they were scheduled. A workout done on a different day still counts toward your Weekly Goal, but not toward Consistency.',
+    body: 'Of the sessions your program schedules this week, how many you completed on the day they were scheduled. A workout done on a different day still counts toward your Weekly Goal, but not toward Consistency. Starts tracking once your program is 7 days old, so it reflects a real week rather than a day or two.',
   },
   volume: {
     title: 'Volume Trend',
-    body: "This week's total weight lifted (sets × reps × weight) compared with last week's. Over 100% means you've lifted more than last week; if you didn't train last week it shows 100% once you log a workout.",
+    body: "This week's total weight lifted (sets × reps × weight) compared with last week's. Over 100% means you've lifted more than last week; if you didn't train last week it shows 100% once you log a workout. Starts tracking once your program is 3 days old.",
   },
 };
 
@@ -436,6 +436,12 @@ interface TrackerStore {
   // reflect whatever the program is *now*, not what it was historically.
   runSessions: Partial<Record<DayLabel, RunSessionPlan>>;
   setProgram: (sessions: Record<SessionKey, Session>, runSessions: Partial<Record<DayLabel, RunSessionPlan>>, split?: string, force?: boolean) => void;
+  // When the account's program was first created — the clock Consistency and
+  // Volume Trend wait against before they start showing real numbers (see
+  // CONSISTENCY_READY_DAYS/VOLUME_READY_DAYS in engine/stats.ts). Filled in
+  // from the server's record once hydrated; set locally the moment a brand
+  // new program is built, so a fresh signup doesn't read as "no program yet".
+  programCreatedAt: number | null;
   // The account's saved records — the single source everything else (activities,
   // stats, records, history) is derived from.
   workoutLogs: WorkoutLogRecord[];
@@ -509,15 +515,6 @@ interface TrackerStore {
   setLogActivityDistance: (v: string) => void;
   saveLoggedActivity: () => void;
 
-  // Run Detail's Share Card.
-  shareCardStyle: 'compact' | 'stacked';
-  shareCardYPct: number; // vertical position of the card on the photo, 0=top, 100=bottom
-  runSharePhoto: string | null; // local image URI from expo-image-picker
-  openRunShareCard: () => void;
-  selectShareCardStyle: (style: 'compact' | 'stacked') => void;
-  setShareCardYPct: (pct: number) => void;
-  setRunSharePhoto: (uri: string | null) => void;
-
   // add-set sheet
   activeExerciseId: string | null; // the exercise whose log-set sheet is open
   viewedExerciseId: string | null; // the exercise whose history page is showing
@@ -543,7 +540,8 @@ interface TrackerStore {
   enabled: Record<MetricContext, Record<string, boolean>>;
   // Left-to-right, top-to-bottom order of each page's overview tiles.
   order: Record<MetricContext, string[]>;
-  moveMetric: (context: MetricContext, id: string, dir: -1 | 1) => void;
+  // Replaces a page's whole tile order at once — used by the drag-to-reorder list.
+  setMetricOrder: (context: MetricContext, ids: string[]) => void;
   toggleMetric: (context: MetricContext, id: string) => void;
   overviewContext: MetricContext;
   setOverviewContext: (context: MetricContext) => void;
@@ -582,7 +580,7 @@ interface TrackerStore {
   // didn't sync.
   // Saves the checked-off sets (plus the unchecked ones that have reps, when includeUnchecked is set).
   finishWorkout: (opts?: { includeUnchecked?: boolean }) => Promise<{ ok: boolean; error?: string }>;
-  restTimer: { status: 'idle' | 'running' | 'paused'; duration: number; remaining: number; cycles: number; customOpen: boolean };
+  restTimer: { status: 'idle' | 'running' | 'paused'; duration: number; remaining: number; cycles: number; customOpen: boolean; endsAt: number | null };
   selectRestPreset: (seconds: number) => void;
   openCustomRest: () => void;
   adjustRestTimer: (delta: number) => void;
@@ -646,6 +644,8 @@ interface TrackerStore {
   summaryStartInShare: boolean; // open the summary straight on the share designs
   openWorkoutSummary: (summary: WorkoutSummaryData, startInShare?: boolean) => void;
   runStartedAt: number | null; // wall-clock moment the countdown ended and the run began
+  runPausedMs: number; // total time spent paused so far, across all pauses
+  runPauseStartedAt: number | null; // when the current pause began, null while running
   openRunSetup: () => void;
   closeRunSetup: () => void;
   selectRunType: (t: RunType) => void;
@@ -659,7 +659,7 @@ interface TrackerStore {
   startRunFromSetup: () => void;
 }
 
-const REST_TIMER_DEFAULT = { status: 'idle' as const, duration: 60, remaining: 60, cycles: 0, customOpen: false };
+const REST_TIMER_DEFAULT = { status: 'idle' as const, duration: 60, remaining: 60, cycles: 0, customOpen: false, endsAt: null as number | null };
 const RUN_DEFAULT = { elapsed: 0, distance: 0, intervalCount: 0, route: [] as RoutePoint[], maxSpeedKmh: 0 };
 
 export const useTrackerStore = create<TrackerStore>((set, get) => ({
@@ -706,15 +706,19 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   },
 
   runSessions: {},
+  programCreatedAt: null,
   setProgram: (sessions, runSessions, split, force) => {
     persistProgram(sessions, runSessions, split, force);
-    set({
+    set((s) => ({
       sessions,
       runSessions,
       activeSessionKey: Object.keys(sessions)[0] || '',
       viewWeekOffset: 0,
       viewDay: getTodayShort(),
-    });
+      // Only stamps a value the first time — once hydrateFromBackend has set
+      // the real server date, editing the program later must not reset it.
+      programCreatedAt: s.programCreatedAt ?? Date.now(),
+    }));
   },
   workoutLogs: [],
   cardio: [],
@@ -740,6 +744,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       // to write program edits back from now on.
       enableProgramSync();
       const p = programRes.value;
+      if (p) set({ programCreatedAt: new Date(p.createdAt).getTime() });
       if (p && p.sessions.length > 0) {
         const sessions: Record<SessionKey, Session> = {};
         p.sessions.forEach((sess) => {
@@ -842,6 +847,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       runSessions: s.runSessions,
       health: useHealthStore.getState().snapshot,
       unitSystem: s.unitSystem,
+      programCreatedAt: s.programCreatedAt,
     };
   },
 
@@ -1127,13 +1133,6 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       .catch(() => set((s) => ({ pendingCardio: [...s.pendingCardio, record] })));
   },
 
-  shareCardStyle: 'compact',
-  shareCardYPct: 50,
-  runSharePhoto: null,
-  openRunShareCard: () => set({ runSharePhoto: null, shareCardStyle: 'compact', shareCardYPct: 50 }),
-  selectShareCardStyle: (style) => set({ shareCardStyle: style }),
-  setShareCardYPct: (pct) => set({ shareCardYPct: Math.max(0, Math.min(100, pct)) }),
-  setRunSharePhoto: (uri) => set({ runSharePhoto: uri }),
 
   findExerciseById: (id) => {
     const sessions = get().sessions;
@@ -1236,11 +1235,22 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
         [exId]: (s.sets[exId] || []).filter((_, i) => i !== idx).map((row, i) => ({ ...row, num: i + 1 })),
       },
     })),
+  // A new set starts prefilled with what was lifted at that SAME set number
+  // last time (set 1 opens at last time's set-1 weight, set 2 at last time's
+  // set 2, and so on) rather than repeating whatever was typed into today's
+  // previous set — so a planned progression (e.g. 80kg then 90kg) shows up
+  // automatically instead of every set defaulting to the same number.
   addSetTo: (exId) =>
     set((s) => {
       const list = s.sets[exId] || [];
-      const last = list[list.length - 1];
-      const next = [...list, { num: list.length + 1, weight: last ? last.weight : 0, reps: last ? last.reps : 0, done: false }];
+      const idx = list.length;
+      const ex = get().findExerciseById(exId);
+      const lastSession = ex ? buildExerciseHistory(ex.name, s.workoutLogs, 1)[0] : undefined;
+      const fromHistory = lastSession?.sets[idx];
+      const lastOfHistory = lastSession?.sets[lastSession.sets.length - 1];
+      const weight = fromHistory?.weight ?? lastOfHistory?.weight ?? ex?.previous ?? 0;
+      const reps = fromHistory?.reps ?? lastOfHistory?.reps ?? 0;
+      const next = [...list, { num: idx + 1, weight, reps, done: false }];
       return { sets: { ...s.sets, [exId]: next } };
     }),
   toggleSetDone: (exId, idx) =>
@@ -1252,18 +1262,8 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
 
   enabled: { home: { ...OVERVIEW_DEFAULTS.home }, strength: { ...OVERVIEW_DEFAULTS.strength }, running: { ...OVERVIEW_DEFAULTS.running } },
   order: defaultOrder(),
-  // Swaps a tile with the nearest visible one in that direction (hidden tiles
-  // have no position on the page, so they're skipped).
-  moveMetric: (context, id, dir) => {
-    const { order, enabled } = get();
-    const list = [...order[context]];
-    const from = list.indexOf(id);
-    if (from < 0) return;
-    let to = from + dir;
-    while (to >= 0 && to < list.length && !enabled[context][list[to]]) to += dir;
-    if (to < 0 || to >= list.length) return;
-    [list[from], list[to]] = [list[to], list[from]];
-    const next = { ...order, [context]: list };
+  setMetricOrder: (context, ids) => {
+    const next = { ...get().order, [context]: ids };
     set({ order: next });
     SecureStore.setItemAsync(METRIC_ORDER_KEY, JSON.stringify(next)).catch(() => {});
     persistSettings({ metricOrder: next });
@@ -1441,16 +1441,21 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       const remaining = s.restTimer.status !== 'running' ? duration : s.restTimer.remaining;
       return { restTimer: { ...s.restTimer, duration, remaining } };
     }),
-  startRestTimer: () => set((s) => ({ restTimer: { ...s.restTimer, status: 'running' } })),
-  pauseRestTimer: () => set((s) => ({ restTimer: { ...s.restTimer, status: 'paused' } })),
-  resumeRestTimer: () => set((s) => ({ restTimer: { ...s.restTimer, status: 'running' } })),
+  startRestTimer: () => set((s) => ({ restTimer: { ...s.restTimer, status: 'running', endsAt: Date.now() + s.restTimer.remaining * 1000 } })),
+  pauseRestTimer: () => set((s) => ({ restTimer: { ...s.restTimer, status: 'paused', endsAt: null } })),
+  resumeRestTimer: () => set((s) => ({ restTimer: { ...s.restTimer, status: 'running', endsAt: Date.now() + s.restTimer.remaining * 1000 } })),
   finishRestTimer: () =>
     set((s) => ({ restTimer: { ...s.restTimer, status: 'idle', cycles: s.restTimer.cycles + 1, remaining: s.restTimer.duration } })),
+  // Derived from the stored end time, not decremented — so if the app was
+  // backgrounded (screen locked, phone off) for the whole rest period or
+  // part of it, the next tick catches up to the real remaining time instead
+  // of silently freezing while JS wasn't running.
   tickRestTimer: () =>
     set((s) => {
-      const remaining = s.restTimer.remaining - 1;
+      if (!s.restTimer.endsAt) return {};
+      const remaining = Math.max(0, Math.round((s.restTimer.endsAt - Date.now()) / 1000));
       if (remaining <= 0) {
-        return { restTimer: { ...s.restTimer, status: 'idle', cycles: s.restTimer.cycles + 1, remaining: s.restTimer.duration } };
+        return { restTimer: { ...s.restTimer, status: 'idle', cycles: s.restTimer.cycles + 1, remaining: s.restTimer.duration, endsAt: null } };
       }
       return { restTimer: { ...s.restTimer, remaining } };
     }),
@@ -1479,6 +1484,8 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   summaryStartInShare: false,
   openWorkoutSummary: (summary, startInShare = false) => set({ workoutSummary: summary, summaryStartInShare: startInShare }),
   runStartedAt: null,
+  runPausedMs: 0,
+  runPauseStartedAt: null,
   run: { ...RUN_DEFAULT },
   runSetupOpen: false,
   runType: 'open',
@@ -1487,7 +1494,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   customDistanceVal: 8,
   intervalMeters: 400,
   intervalReps: 6,
-  openRunTracker: () => set({ runTrackerOpen: true, runStatus: 'idle', gpsIssue: null, runStartedAt: null, run: { ...RUN_DEFAULT } }),
+  openRunTracker: () => set({ runTrackerOpen: true, runStatus: 'idle', gpsIssue: null, runStartedAt: null, runPausedMs: 0, runPauseStartedAt: null, run: { ...RUN_DEFAULT } }),
   closeRunTracker: () => {
     stopRunTracking().catch(() => {}); // best-effort — local state resets regardless
     set({ runTrackerOpen: false, runStatus: 'idle' });
@@ -1505,14 +1512,28 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
             if (!ok) set({ gpsIssue: 'denied' });
           })
           .catch(() => set({ gpsIssue: 'denied' }));
-        return { runStatus: 'running', countdownVal: 0, runStartedAt: Date.now() };
+        return { runStatus: 'running', countdownVal: 0, runStartedAt: Date.now(), runPausedMs: 0, runPauseStartedAt: null };
       }
       return { countdownVal: next };
     }),
-  toggleRunPause: () => set((s) => ({ runStatus: s.runStatus === 'running' ? 'paused' : 'running' })),
+  toggleRunPause: () =>
+    set((s) => {
+      if (s.runStatus === 'running') return { runStatus: 'paused', runPauseStartedAt: Date.now() };
+      // Resuming: fold the just-finished pause into the running total so
+      // elapsed time keeps excluding it, whether the pause was 5 seconds or
+      // the whole run sat paused with the screen off.
+      const justPausedMs = s.runPauseStartedAt ? Date.now() - s.runPauseStartedAt : 0;
+      return { runStatus: 'running', runPauseStartedAt: null, runPausedMs: s.runPausedMs + justPausedMs };
+    }),
+  // Recomputed from runStartedAt each tick (like the workout timer already
+  // does) rather than incremented, so a tick that fires late — after the
+  // screen was locked or the app was backgrounded through part of the run —
+  // catches straight up to the real elapsed time instead of just adding 1.
   tickRun: () =>
     set((s) => {
-      const elapsed = s.run.elapsed + 1;
+      if (!s.runStartedAt) return {};
+      const pausedMs = s.runPausedMs + (s.runPauseStartedAt ? Date.now() - s.runPauseStartedAt : 0);
+      const elapsed = Math.max(0, Math.floor((Date.now() - s.runStartedAt - pausedMs) / 1000));
       let intervalCount = s.run.intervalCount;
       if (s.runType === 'interval') {
         const target = (intervalCount + 1) * s.intervalMeters;
@@ -1538,14 +1559,19 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       };
     }),
   finishRun: () => {
-    const { run } = get();
+    const { run, runStartedAt, runPausedMs, runPauseStartedAt } = get();
     stopRunTracking().catch(() => {});
     if (run.distance <= 0) {
       // Nothing was recorded (the overlay confirms with the user before this).
       set({ runTrackerOpen: false, runStatus: 'idle' });
       return;
     }
-    const durationMin = run.elapsed / 60;
+    // Recomputed fresh rather than trusting run.elapsed, in case Finish is
+    // pressed before the next tick has caught up (e.g. right after the app
+    // comes back from being backgrounded).
+    const pausedMs = runPausedMs + (runPauseStartedAt ? Date.now() - runPauseStartedAt : 0);
+    const elapsedSec = runStartedAt ? Math.max(0, Math.floor((Date.now() - runStartedAt - pausedMs) / 1000)) : run.elapsed;
+    const durationMin = elapsedSec / 60;
     const record: CardioRecord = {
       id: `local-${Date.now()}`,
       type: 'running',
@@ -1559,9 +1585,9 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     const workoutSummary: WorkoutSummaryData = {
       kind: 'run',
       title: record.title,
-      startedAt: get().runStartedAt ?? endedAt - run.elapsed * 1000,
+      startedAt: runStartedAt ?? endedAt - elapsedSec * 1000,
       endedAt,
-      durationSec: run.elapsed,
+      durationSec: elapsedSec,
       distanceKm: run.distance,
       route: run.route,
       maxSpeedKmh: run.maxSpeedKmh,
