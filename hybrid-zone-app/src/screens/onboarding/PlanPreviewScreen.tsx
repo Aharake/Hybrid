@@ -77,5 +77,5 @@ const styles = StyleSheet.create({
   cardBody: {},
   cardTitle: { fontFamily: fonts.extraBold, fontSize: 18, letterSpacing: -0.2, color: colors.text },
   cardSub: { fontFamily: fonts.regular, fontSize: 12, color: colors.textDim, marginTop: 4 },
-  cardIndex: { fontFamily: fonts.serifItalicBold, fontSize: 28, color: 'rgba(255,255,255,0.45)' },
+  cardIndex: { fontFamily: fonts.extraBold, fontSize: 24, color: 'rgba(255,255,255,0.45)' },
 });

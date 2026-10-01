@@ -43,12 +43,10 @@ export const fonts = {
   semiBold: 'Inter_600SemiBold',
   bold: 'Inter_700Bold',
   extraBold: 'Inter_800ExtraBold',
-  serifItalic: 'PlayfairDisplay_600SemiBold_Italic',
-  serifItalicBold: 'PlayfairDisplay_700Bold_Italic',
 } as const;
 
 export const typography = {
-  title: { fontFamily: fonts.serifItalic, fontSize: 32, lineHeight: 37 },
+  title: { fontFamily: fonts.extraBold, fontSize: 30, lineHeight: 35, letterSpacing: -0.4 },
   subtitle: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 22, color: colors.textDim },
   sectionLabel: {
     fontFamily: fonts.bold,

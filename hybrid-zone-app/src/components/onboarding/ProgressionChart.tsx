@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
   wrap: { marginTop: 22 },
   headRow: { flexDirection: 'row', marginBottom: 18 },
   metric: { fontFamily: fonts.bold, fontSize: 11.5, letterSpacing: 0.8, color: colors.textDimmer, textTransform: 'uppercase' },
-  big: { fontFamily: fonts.serifItalicBold, fontSize: 44, lineHeight: 50, color: colors.text, marginTop: 4 },
+  big: { fontFamily: fonts.extraBold, fontSize: 40, lineHeight: 46, color: colors.text, marginTop: 4, letterSpacing: -0.6 },
   bigSub: { fontFamily: fonts.regular, fontSize: 14, color: colors.textDim, marginTop: 2 },
   chart: { height: CHART_H, justifyContent: 'flex-end' },
   bars: { flexDirection: 'row', alignItems: 'flex-end', height: CHART_H },

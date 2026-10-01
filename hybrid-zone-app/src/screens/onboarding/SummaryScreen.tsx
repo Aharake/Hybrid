@@ -78,7 +78,7 @@ export function SummaryScreen() {
 
 const styles = StyleSheet.create({
   hero: { backgroundColor: colors.card, borderRadius: 28, padding: 26, alignItems: 'center', marginTop: 22, marginBottom: 12 },
-  heroNum: { fontFamily: fonts.serifItalicBold, fontSize: 44, lineHeight: 44, color: colors.text },
+  heroNum: { fontFamily: fonts.extraBold, fontSize: 40, lineHeight: 44, color: colors.text, letterSpacing: -0.6 },
   heroLabel: { fontFamily: fonts.bold, fontSize: 12.5, color: colors.textDim, marginTop: 6, letterSpacing: 0.3 },
   heroBreakdown: { fontFamily: fonts.regular, fontSize: 12, color: colors.textDimmer, marginTop: 10 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },

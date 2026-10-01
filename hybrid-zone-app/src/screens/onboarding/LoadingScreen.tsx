@@ -34,6 +34,6 @@ export function LoadingScreen() {
 
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', paddingTop: 18 },
-  title: { fontFamily: fonts.serifItalic, fontSize: 25, color: colors.text, marginBottom: 4, textAlign: 'center' },
+  title: { fontFamily: fonts.extraBold, fontSize: 23, color: colors.text, marginBottom: 4, textAlign: 'center', letterSpacing: -0.3 },
   sub: { fontFamily: fonts.regular, fontSize: 13.5, color: colors.textDim, marginBottom: 26, textAlign: 'center' },
 });
