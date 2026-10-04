@@ -4,7 +4,8 @@ import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, wi
 import { colors, fonts } from '@/theme/tokens';
 import { CheckIcon } from '@/icons';
 
-const STEP_DURATION_MS = 750;
+// Exported so the plan-building animation above it runs for exactly as long as the steps do.
+export const CHECKLIST_STEP_MS = 900;
 const COMPLETE_DELAY_MS = 700;
 
 function Spinner() {
@@ -37,10 +38,10 @@ export function Checklist({ items, onComplete }: Props) {
         setTimeout(() => {
           setDoneCount(i);
           setActiveIndex(i);
-        }, i * STEP_DURATION_MS)
+        }, i * CHECKLIST_STEP_MS)
       );
     });
-    const total = items.length * STEP_DURATION_MS;
+    const total = items.length * CHECKLIST_STEP_MS;
     timers.push(
       setTimeout(() => {
         setDoneCount(items.length);

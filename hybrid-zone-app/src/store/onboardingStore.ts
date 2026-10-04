@@ -34,7 +34,7 @@ export interface OnboardingFields {
   dayPickMode: Discipline;
   schedule: WeekSchedule;
   planTier: 'annual' | 'monthly';
-  referralCode: string | null; // optional, entered on the screen before the paywall
+  referralCode: string | null; // no screen sets this any more — promo codes are App Store offer codes redeemed on the paywall
 }
 
 interface OnboardingStore extends OnboardingFields {

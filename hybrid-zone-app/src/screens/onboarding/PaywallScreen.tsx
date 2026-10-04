@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,12 +19,24 @@ const FEATURES = [
 
 // Prices and trial terms are never hardcoded here: they come from the
 // subscription products configured in RevenueCat / the App Store, and are
-// shown by RevenueCat's own paywall before anything is purchased. Without
-// that setup this screen simply continues to account creation.
+// shown by RevenueCat's own paywall before anything is purchased.
+//
+// This is a hard paywall: with RevenueCat set up, the only ways past it are a
+// plan (its free trial included) or a promo code (an App Store offer code,
+// e.g. 14 days free). Without RevenueCat configured — a dev build with no
+// keys — it simply continues to account creation.
 export function PaywallScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<OnboardingStackParamList>>();
-  const { restore, presentPaywall } = useSubscriptionStore();
+  const { restore, presentPaywall, redeemPromoCode } = useSubscriptionStore();
+  const isPro = useSubscriptionStore((s) => s.isPro);
   const [busy, setBusy] = useState(false);
+
+  // Any route to an active entitlement — a purchase, a restore, a promo code
+  // redeemed in Apple's sheet — moves the user on, and the subscription follows
+  // them into the account created next.
+  useEffect(() => {
+    if (isRevenueCatConfigured && isPro) navigation.navigate('Auth');
+  }, [isPro, navigation]);
 
   const handleContinue = async () => {
     if (!isRevenueCatConfigured) {
@@ -34,16 +46,17 @@ export function PaywallScreen() {
     setBusy(true);
     const result = await presentPaywall();
     setBusy(false);
+    // Purchased, restored, or already entitled → the effect above moves on.
     if (result.error) {
-      Alert.alert("Couldn't load the plans", 'You can continue for now and subscribe later from Profile → Hyvo Pro.');
+      Alert.alert("Couldn't load the plans", 'Check your connection and try again.');
     }
-    // Purchased, restored, or dismissed — either way, on to creating the account.
-    navigation.navigate('Auth');
+    // Dismissed without subscribing: stay here.
   };
 
   const handleRestore = async () => {
     const result = await restore();
-    Alert.alert(result.ok ? 'Restored' : 'Restore failed', result.ok ? 'Your purchases have been restored.' : result.error);
+    if (!result.ok) Alert.alert('Restore failed', result.error);
+    else if (!useSubscriptionStore.getState().isPro) Alert.alert('Nothing to restore', "We couldn't find an active subscription on this Apple ID.");
   };
 
   return (
@@ -57,17 +70,23 @@ export function PaywallScreen() {
           ) : (
             <PrimaryButton label={isRevenueCatConfigured ? 'See plans' : 'Continue'} onPress={handleContinue} />
           )}
+
           {isRevenueCatConfigured && (
-            <Pressable style={styles.linkRow} onPress={handleRestore}>
-              <Text style={styles.link}>Restore purchase</Text>
-            </Pressable>
+            <>
+              <Pressable style={styles.linkRow} onPress={redeemPromoCode} hitSlop={8}>
+                <Text style={styles.link}>Have a promo code?</Text>
+              </Pressable>
+              <Pressable style={styles.linkRow} onPress={handleRestore} hitSlop={8}>
+                <Text style={styles.link}>Restore purchase</Text>
+              </Pressable>
+            </>
           )}
         </>
       }
     >
       <View style={styles.hero}>
         <Text style={[typography.title, { color: colors.text, marginBottom: 10, textAlign: 'center' }]}>
-          {isRevenueCatConfigured ? 'Get the most from Hyvo' : 'Your plan is ready'}
+          {isRevenueCatConfigured ? 'Start with Hyvo Pro' : 'Your plan is ready'}
         </Text>
         <Text style={[typography.subtitle, { textAlign: 'center' }]}>
           {isRevenueCatConfigured ? 'Plans and pricing are shown before you subscribe.' : 'Create your account to save your plan and start training.'}

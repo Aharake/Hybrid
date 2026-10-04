@@ -9,6 +9,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { OnboardingNavigator } from '@/navigation/OnboardingNavigator';
 import { TrackerNavigator } from '@/navigation/TrackerNavigator';
 import { AuthScreen } from '@/screens/AuthScreen';
+import { SubscriptionGate } from '@/screens/SubscriptionGate';
 import { IntroSplash } from '@/components/IntroSplash';
 import { useAppFonts } from '@/theme/fonts';
 import { colors } from '@/theme/tokens';
@@ -26,6 +27,9 @@ export default function App() {
   const setPhase = useRootStore((s) => s.setPhase);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   const configureSubscriptions = useSubscriptionStore((s) => s.configure);
+  const subsConfigured = useSubscriptionStore((s) => s.configured);
+  const subsChecked = useSubscriptionStore((s) => s.checked);
+  const isPro = useSubscriptionStore((s) => s.isPro);
   const [introDone, setIntroDone] = useState(false);
   const finishIntro = useCallback(() => setIntroDone(true), []);
 
@@ -44,6 +48,9 @@ export default function App() {
   // loaded), try again whenever it comes back to the foreground.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
+      // Coming back from the App Store (a redeemed code, a changed plan) or
+      // after a renewal date passed: re-read the entitlement.
+      if (state === 'active') useSubscriptionStore.getState().refreshCustomerInfo().catch(() => {});
       if (state !== 'active' || useRootStore.getState().phase !== 'authenticated') return;
       if (!useAuthStore.getState().user) bootstrap();
       else useTrackerStore.getState().retryUnsynced().catch(() => {});
@@ -68,7 +75,7 @@ export default function App() {
           {phase !== 'checking' && (
             <NavigationContainer>
               <StatusBar style="light" />
-              {phase === 'authenticated' && <TrackerNavigator />}
+              {phase === 'authenticated' && (!subsConfigured || isPro ? <TrackerNavigator /> : subsChecked ? <SubscriptionGate /> : <View style={{ flex: 1, backgroundColor: colors.bg }} />)}
               {phase === 'onboarding' && <OnboardingNavigator />}
               {phase === 'loggedOut' && <AuthScreen onAuthenticated={() => setPhase('authenticated')} />}
             </NavigationContainer>
