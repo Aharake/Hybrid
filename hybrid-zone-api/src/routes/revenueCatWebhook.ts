@@ -9,13 +9,17 @@ import { prisma } from '../lib/prisma.js';
 // (Project Settings -> Integrations -> Webhooks).
 const WEBHOOK_SECRET = process.env.REVENUECAT_WEBHOOK_SECRET;
 
+// RevenueCat sends explicit nulls for fields that don't apply to an event
+// (e.g. entitlement_ids on its own TEST event), so every optional field here
+// accepts null as well as being absent — rejecting them would answer with a
+// 400, which RevenueCat treats as a failure and keeps retrying.
 const eventSchema = z.object({
   type: z.string(),
-  app_user_id: z.string(),
-  entitlement_ids: z.array(z.string()).optional(),
-  product_id: z.string().optional(),
-  store: z.string().optional(),
-  expiration_at_ms: z.number().nullable().optional(),
+  app_user_id: z.string().nullish(),
+  entitlement_ids: z.array(z.string()).nullish(),
+  product_id: z.string().nullish(),
+  store: z.string().nullish(),
+  expiration_at_ms: z.number().nullish(),
 });
 
 const payloadSchema = z.object({ event: eventSchema });
@@ -39,6 +43,19 @@ export async function revenueCatWebhookRoutes(app: FastifyInstance) {
       return;
     }
     const { event } = parsed.data;
+
+    // The dashboard's "Send test event" button: acknowledge it, but never let it
+    // change a real account's subscription.
+    if (event.type === 'TEST') {
+      reply.code(200).send({ ok: true, test: true });
+      return;
+    }
+    // Some event types (such as transfers) don't carry a single app_user_id.
+    // There's nothing to record, so acknowledge them rather than error.
+    if (!event.app_user_id) {
+      reply.code(200).send({ ok: true, skipped: true });
+      return;
+    }
 
     // app_user_id is whatever we passed to Purchases.logIn() client-side —
     // our own User.id. If it doesn't match a known user (e.g. a purchase
