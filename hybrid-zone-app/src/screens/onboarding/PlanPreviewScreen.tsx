@@ -42,7 +42,7 @@ export function PlanPreviewScreen() {
   );
 
   return (
-    <OnboardingScreen footer={<PrimaryButton label="Get my plan" onPress={() => navigation.navigate('Paywall')} />}>
+    <OnboardingScreen footer={<PrimaryButton label="Get my plan" onPress={() => navigation.navigate('Features')} />}>
       <View style={{ paddingTop: 22 }}>
         <Text style={[typography.title, { color: colors.text, marginBottom: 10 }]}>Your plan is ready</Text>
         <Text style={typography.subtitle}>This is your roadmap to real progress.</Text>

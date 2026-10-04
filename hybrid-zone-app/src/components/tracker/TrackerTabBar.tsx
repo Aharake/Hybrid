@@ -32,7 +32,10 @@ export function TrackerTabBar({ active }: Props) {
           <Pressable
             key={item.route}
             style={styles.item}
-            onPress={() => navigation.reset({ index: 0, routes: [{ name: item.route }] })}
+            onPress={() => {
+              // Tapping the tab you're already on shouldn't rebuild it.
+              if (item.route !== active) navigation.reset({ index: 0, routes: [{ name: item.route }] });
+            }}
           >
             {item.icon(item.route === active)}
           </Pressable>

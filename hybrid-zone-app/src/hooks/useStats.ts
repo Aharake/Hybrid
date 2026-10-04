@@ -13,10 +13,11 @@ export function useStatsInput(): StatsInput {
   const runSessions = useTrackerStore((s) => s.runSessions);
   const unitSystem = useTrackerStore((s) => s.unitSystem);
   const programCreatedAt = useTrackerStore((s) => s.programCreatedAt);
+  const weeklyGoal = useTrackerStore((s) => s.weeklyGoal);
   const health = useHealthStore((s) => s.snapshot);
   return useMemo(
-    () => ({ now: Date.now(), activities, workoutLogs, sessions, runSessions, health, unitSystem, programCreatedAt }),
-    [activities, workoutLogs, sessions, runSessions, health, unitSystem, programCreatedAt],
+    () => ({ now: Date.now(), activities, workoutLogs, sessions, runSessions, health, unitSystem, programCreatedAt, weeklyGoal }),
+    [activities, workoutLogs, sessions, runSessions, health, unitSystem, programCreatedAt, weeklyGoal],
   );
 }
 

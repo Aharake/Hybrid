@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { WorkoutTimerBlock } from '@/components/tracker/WorkoutTimerBlock';
 import { SwapExerciseSheet } from '@/components/tracker/SwapExerciseSheet';
 import { AddExerciseSheet } from '@/components/tracker/AddExerciseSheet';
-import { TrChartIcon, TrCheckIcon, TrChevLeftIcon, TrChevRightIcon, TrClockIcon, TrPlayIcon, TrStrengthIcon, TrSwapIcon, TrTrashIcon } from '@/icons';
+import { BarbellIcon, TrChartIcon, TrCheckIcon, TrChevLeftIcon, TrChevRightIcon, TrClockIcon, TrPlayIcon, TrPlusIcon, TrStrengthIcon, TrSwapIcon, TrTrashIcon } from '@/icons';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { getTodayFull } from '@/engine/calendar';
 import { useTrackerStore, SessionExercise } from '@/store/trackerStore';
@@ -236,47 +236,58 @@ export function SessionOverview() {
                     {rows.length ? (
                       <>
                         <View style={styles.setHead}>
-                          <Text style={[styles.setHeadText, { width: 16 }]}>SET</Text>
-                          <Text style={[styles.setHeadText, { width: 62 }]}>PREVIOUS</Text>
-                          <Text style={[styles.setHeadText, { flex: 1 }]}>REPS</Text>
-                          <Text style={[styles.setHeadText, { flex: 1 }]}>WEIGHT</Text>
-                          <View style={{ width: 28 }} />
+                          <Text style={[styles.setHeadText, styles.colSet]}>SET</Text>
+                          <Text style={[styles.setHeadText, styles.colPrev]}>PREVIOUS</Text>
+                          <View style={[styles.colInput, styles.setHeadIconText]}>
+                            <BarbellIcon size={13} color={colors.neutral500} />
+                            <Text style={styles.setHeadText}>{weightUnitLabel(unitSystem).toUpperCase()}</Text>
+                          </View>
+                          <Text style={[styles.setHeadText, styles.colInput]}>REPS</Text>
+                          <View style={[styles.colCheck, { alignItems: 'center' }]}>
+                            <TrCheckIcon size={15} color={colors.neutral500} />
+                          </View>
                         </View>
                         {rows.map((row, i) => {
                           const prev = previousSets[ex.name.toLowerCase()]?.sets[i];
+                          const prevText = prev
+                            ? `${weightValueAuto(prev.weight, unitSystem)}${weightUnitLabel(unitSystem)} x ${prev.reps}`
+                            : ex.previous
+                              ? fmtWeightAuto(ex.previous, unitSystem)
+                              : '—';
+                          const valueColor = row.done || row.touched ? colors.text : colors.neutral500;
                           return (
-                            <View key={i} style={[styles.setRow, row.done && styles.setRowDone]}>
-                              <Text style={styles.setNum}>{i + 1}</Text>
-                              <Text style={styles.setPrev} numberOfLines={1}>
-                                {prev ? `${weightValueAuto(prev.weight, unitSystem)}×${prev.reps}` : ex.previous ? fmtWeightAuto(ex.previous, unitSystem) : '—'}
-                              </Text>
-                              <View style={styles.setField}>
-                                <NumField
-                                  style={styles.setFieldInput}
-                                  editable={!row.done}
-                                  value={row.reps}
-                                  toText={(n) => String(n)}
-                                  onChange={(n) => updateSet(ex.id, i, 'reps', Math.round(n))}
-                                />
-                                <Text style={styles.unit}>rep</Text>
+                            <View key={i} style={styles.setRow}>
+                              <View style={[styles.setBadge, styles.colSet]}>
+                                <Text style={styles.setBadgeText}>{i + 1}</Text>
                               </View>
-                              <View style={styles.setField}>
+                              <Text style={[styles.setPrev, styles.colPrev]} numberOfLines={1} adjustsFontSizeToFit>
+                                {prevText}
+                              </Text>
+                              <View style={[styles.numBox, styles.colInput]}>
                                 <NumField
-                                  style={styles.setFieldInput}
+                                  style={[styles.numInput, { color: valueColor }]}
                                   editable={!row.done}
                                   value={row.weight}
                                   toText={(kg) => weightValueAuto(kg, unitSystem)}
                                   onChange={(n) => updateSet(ex.id, i, 'weight', weightToKg(n, unitSystem))}
                                 />
-                                <Text style={styles.unit}>{weightUnitLabel(unitSystem)}</Text>
+                              </View>
+                              <View style={[styles.numBox, styles.colInput]}>
+                                <NumField
+                                  style={[styles.numInput, { color: valueColor }]}
+                                  editable={!row.done}
+                                  value={row.reps}
+                                  toText={(n) => String(n)}
+                                  onChange={(n) => updateSet(ex.id, i, 'reps', Math.round(n))}
+                                />
                               </View>
                               {editingExercises ? (
-                                <Pressable style={styles.setCheck} onPress={() => removeSet(ex.id, i)} hitSlop={6}>
-                                  <TrTrashIcon size={12} color="#ef4444" />
+                                <Pressable style={[styles.setCheck, styles.colCheck]} onPress={() => removeSet(ex.id, i)} hitSlop={6}>
+                                  <TrTrashIcon size={15} color="#ef4444" />
                                 </Pressable>
                               ) : (
-                                <Pressable style={[styles.setCheck, row.done && styles.setCheckDone]} onPress={() => toggleSetDone(ex.id, i)} hitSlop={6}>
-                                  <TrCheckIcon size={13} color={row.done ? colors.bg : colors.neutral500} />
+                                <Pressable style={[styles.setCheck, styles.colCheck, row.done && styles.setCheckDone]} onPress={() => toggleSetDone(ex.id, i)} hitSlop={6}>
+                                  <TrCheckIcon size={17} color={row.done ? colors.bg : colors.neutral500} />
                                 </Pressable>
                               )}
                             </View>
@@ -287,7 +298,8 @@ export function SessionOverview() {
                       <Text style={styles.noSets}>No sets logged yet.</Text>
                     )}
                     <Pressable style={styles.expAddBtn} onPress={() => addSetTo(ex.id)}>
-                      <Text style={styles.expAddBtnText}>+ Add Set</Text>
+                      <TrPlusIcon size={16} color={colors.text} />
+                      <Text style={styles.expAddBtnText}>Add Set</Text>
                     </Pressable>
                   </Animated.View>
                 )}
@@ -376,20 +388,25 @@ const styles = StyleSheet.create({
   exDel: { padding: 6 },
   exIconBtn: { padding: 4 },
   exExpand: { paddingHorizontal: 10, paddingBottom: 16, paddingTop: 12, gap: 8, borderTopWidth: 1, borderTopColor: colors.divider },
-  setRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  setHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
-  setHeadText: { fontSize: 9.5, letterSpacing: 0.6, color: colors.neutral500, fontFamily: fonts.semiBold },
-  setRowDone: { backgroundColor: 'rgba(34,197,94,0.12)', borderRadius: 12, marginHorizontal: -6, paddingHorizontal: 6, paddingVertical: 4 },
-  setNum: { width: 16, fontSize: 13, color: colors.text, fontFamily: fonts.semiBold },
-  setPrev: { width: 62, fontSize: 11.5, color: colors.neutral500, fontFamily: fonts.regular },
-  setField: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.bg, borderRadius: radius.sm, paddingVertical: 10, paddingHorizontal: 10 },
-  setFieldInput: { flex: 1, fontFamily: fonts.semiBold, fontSize: 14.5, padding: 0, color: colors.text },
-  unit: { fontSize: 11, color: colors.neutral500, marginLeft: 6 },
-  setCheck: { width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: colors.neutral400, alignItems: 'center', justifyContent: 'center' },
-  setCheckDone: { backgroundColor: colors.green, borderColor: colors.green },
+  // Column sizes shared by the header and every row so they line up exactly.
+  colSet: { width: 38 },
+  colPrev: { flex: 1.25, textAlign: 'center' },
+  colInput: { flex: 1 },
+  colCheck: { width: 38 },
+  setHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  setHeadText: { fontSize: 11, letterSpacing: 0.6, color: colors.neutral500, fontFamily: fonts.semiBold, textAlign: 'center' },
+  setHeadIconText: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
+  setRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  setBadge: { height: 38, borderRadius: 11, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+  setBadgeText: { fontFamily: fonts.bold, fontSize: 15, color: colors.text },
+  setPrev: { fontSize: 15, color: colors.neutral500, fontFamily: fonts.medium },
+  numBox: { height: 38, borderRadius: 12, borderWidth: 1, borderColor: colors.neutral400, backgroundColor: colors.bg, justifyContent: 'center' },
+  numInput: { textAlign: 'center', fontFamily: fonts.semiBold, fontSize: 17, padding: 0, width: '100%' },
+  setCheck: { height: 38, borderRadius: 11, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+  setCheckDone: { backgroundColor: colors.green },
   noSets: { fontSize: 12.5, color: colors.neutral500, paddingVertical: 4, fontFamily: fonts.regular },
-  expAddBtn: { alignItems: 'center', justifyContent: 'center', paddingVertical: 9, marginTop: 2, borderRadius: radius.sm, borderWidth: 1.5, borderColor: colors.neutral300, borderStyle: 'dashed' },
-  expAddBtnText: { fontSize: 12.5, color: colors.neutral500, fontFamily: fonts.semiBold },
+  expAddBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, marginTop: 4, borderRadius: 14, backgroundColor: colors.bg },
+  expAddBtnText: { fontSize: 14.5, color: colors.text, fontFamily: fonts.semiBold },
   addExBtn: { alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: radius.lg, borderWidth: 1.5, borderColor: colors.neutral400, borderStyle: 'dashed' },
   addExBtnText: { fontSize: 13.5, color: colors.neutral500, fontFamily: fonts.semiBold },
   footer: { paddingHorizontal: 20, paddingBottom: 14 },

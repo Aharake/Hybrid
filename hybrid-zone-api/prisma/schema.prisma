@@ -108,6 +108,7 @@ model OnboardingAnswers {
   includeRunning Boolean  @default(false)
   schedule       Json? // { mon: { strength, running }, tue: {...}, ... }
   planTier       String?
+  referralCode   String? // code entered on the pre-payment screen, if any — stored as typed (trimmed, upper-cased)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

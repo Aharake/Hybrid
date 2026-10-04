@@ -18,6 +18,16 @@ const bodySchema = z.object({
   includeRunning: z.boolean().optional(),
   schedule: z.record(z.string(), z.any()).nullable().optional(),
   planTier: z.string().nullable().optional(),
+  // Letters, digits, dashes and underscores only, so a pasted code can't carry anything unexpected.
+  referralCode: z
+    .string()
+    .trim()
+    .min(3)
+    .max(32)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .transform((v) => v.toUpperCase())
+    .nullable()
+    .optional(),
 });
 
 export async function onboardingAnswersRoutes(app: FastifyInstance) {

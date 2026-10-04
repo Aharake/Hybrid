@@ -563,3 +563,12 @@ export function TrTrashIcon({ size = 15, color = '#f5f5f6' }: IconProps) {
     </Svg>
   );
 }
+
+export function TrLockIcon({ size = 12, color = '#f5f5f6' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+      <Rect x={5} y={11} width={14} height={10} rx={2.5} />
+      <Path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
+    </Svg>
+  );
+}

@@ -4,7 +4,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import ViewShot from 'react-native-view-shot';
-import Svg, { Circle, Defs, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { colors, fonts } from '@/theme/trackerTokens';
 import { TrBurnIcon, TrCheckIcon, TrClockIcon, TrElevationIcon, TrHeartrateIcon, TrPaceIcon, TrPlusIcon, TrShareIcon, TrStepsIcon } from '@/icons';
 import { RoutePolylineSvg } from './RoutePolylineSvg';
@@ -150,12 +152,17 @@ function Visual({ summary, health, w, h, color, glow }: { summary: WorkoutSummar
 
 /* ---------------- share designs ---------------- */
 
-type Design = 'detailed' | 'grid' | 'neon' | 'photo';
-const DESIGNS: [Design, string][] = [
-  ['detailed', 'Details'],
-  ['grid', 'Stats'],
+// A run has the original two cards; a lift has three. Every one of them can
+// take the person's own photo as its background.
+type Design = 'details' | 'neon' | 'stats' | 'card' | 'minimal';
+const LIFT_DESIGNS: [Design, string][] = [
+  ['details', 'Details'],
   ['neon', 'Neon'],
-  ['photo', 'Photo'],
+  ['stats', 'Stats'],
+];
+const RUN_DESIGNS: [Design, string][] = [
+  ['card', 'Card'],
+  ['minimal', 'Minimal'],
 ];
 
 interface DetailRow {
@@ -173,6 +180,7 @@ interface CanvasProps {
   photoUri: string | null;
   detailRows: DetailRow[];
   detailOverflow: number;
+  unitSystem: UnitSystem;
 }
 
 function Brand({ u, color = '#fff' }: { u: number; color?: string }) {
@@ -200,22 +208,165 @@ function StatRow({ items, u, color = '#fff', dim = 'rgba(255,255,255,0.6)' }: { 
   );
 }
 
-function ShareCanvas({ design, w, summary, health, primary, known, photoUri, detailRows, detailOverflow }: CanvasProps) {
+// The person's photo behind a design, darkened so the text on top stays readable.
+function Backdrop({ photoUri, shade }: { photoUri: string | null; shade: number }) {
+  if (!photoUri) return null;
+  return (
+    <>
+      <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(0,0,0,${shade})` }]} />
+    </>
+  );
+}
+
+const MIN_CARD_SCALE = 0.6;
+const MAX_CARD_SCALE = 2.2;
+
+// A run card the person can drag anywhere on the picture and pinch to resize.
+// The gesture covers the whole canvas (not just the card, which is a small
+// target), moves on both axes, and keeps the card inside the picture so it
+// can't be pushed off an edge. Everything runs on shared values on the UI
+// thread — no state updates while moving — which is what keeps it smooth.
+function DraggableCard({ w, h, children }: { w: number; h: number; children: React.ReactNode }) {
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
+  const scale = useSharedValue(1);
+  const startX = useSharedValue(0);
+  const startY = useSharedValue(0);
+  const startScale = useSharedValue(1);
+  const cardW = useSharedValue(0);
+  const cardH = useSharedValue(0);
+
+  const pan = Gesture.Pan()
+    .onStart(() => {
+      startX.value = tx.value;
+      startY.value = ty.value;
+    })
+    .onUpdate((e) => {
+      const maxX = Math.max(0, (w - cardW.value * scale.value) / 2);
+      const maxY = Math.max(0, (h - cardH.value * scale.value) / 2);
+      tx.value = Math.min(maxX, Math.max(-maxX, startX.value + e.translationX));
+      ty.value = Math.min(maxY, Math.max(-maxY, startY.value + e.translationY));
+    });
+
+  const pinch = Gesture.Pinch()
+    .onStart(() => {
+      startScale.value = scale.value;
+    })
+    .onUpdate((e) => {
+      scale.value = Math.min(MAX_CARD_SCALE, Math.max(MIN_CARD_SCALE, startScale.value * e.scale));
+      // Growing next to an edge must not push the card out of the picture.
+      const maxX = Math.max(0, (w - cardW.value * scale.value) / 2);
+      const maxY = Math.max(0, (h - cardH.value * scale.value) / 2);
+      tx.value = Math.min(maxX, Math.max(-maxX, tx.value));
+      ty.value = Math.min(maxY, Math.max(-maxY, ty.value));
+    });
+
+  const gesture = Gesture.Simultaneous(pan, pinch);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }] }));
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Animated.View
+          style={style}
+          onLayout={(e) => {
+            cardW.value = e.nativeEvent.layout.width;
+            cardH.value = e.nativeEvent.layout.height;
+          }}
+        >
+          {children}
+        </Animated.View>
+      </View>
+    </GestureDetector>
+  );
+}
+
+function ShareCanvas({ design, w, summary, health, primary, known, photoUri, detailRows, detailOverflow, unitSystem }: CanvasProps) {
   const u = w / 360;
   const h = (w * 16) / 9;
-  const isRun = summary.kind === 'run';
   const pad = 26 * u;
   const secondary = known.filter((k) => k.label !== primary.label);
 
-  if (design === 'detailed') {
+  /* ---- run: the two original cards ---- */
+  if (design === 'card' || design === 'minimal') {
+    const km = summary.distanceKm ?? 0;
+    const dist = distanceValueOnly(km, unitSystem, 2);
+    const unit = distanceUnitLabel(unitSystem);
+    const pace = km > 0.02 ? `${fmtPaceFromSecPerKm(summary.durationSec / km, unitSystem)}/${unit}` : '—';
+    const time = fmtDuration(summary.durationSec);
+    const route = summary.route ?? [];
+    const lbl = { fontSize: 9.5 * u, letterSpacing: 0.5 * u, textTransform: 'uppercase' as const, color: 'rgba(255,255,255,0.65)' };
+
+    return (
+      <View style={{ width: w, height: h, overflow: 'hidden', backgroundColor: '#151517' }}>
+        <Backdrop photoUri={photoUri} shade={0.28} />
+        <DraggableCard w={w} h={h}>
+          {design === 'card' ? (
+            <View
+              style={{
+                width: w * 0.66,
+                backgroundColor: 'rgba(10,10,11,0.55)',
+                borderRadius: 16 * u,
+                padding: 15 * u,
+                borderWidth: 1.5,
+                borderColor: 'rgba(255,255,255,0.85)',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Image source={require('../../../assets/logo-mark.png')} style={{ width: 22 * u, height: 22 * u, tintColor: '#fff' }} resizeMode="contain" />
+                <RoutePolylineSvg route={route} size={46 * u} color="#fff" />
+              </View>
+              <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.35)', marginVertical: 11 * u }} />
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 * u }}>
+                <Text style={{ fontFamily: fonts.bold, fontSize: 30 * u, color: '#fff' }}>{dist}</Text>
+                <Text style={{ fontSize: 13 * u, color: 'rgba(255,255,255,0.75)' }}>{unit}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 20 * u, marginTop: 9 * u }}>
+                <View>
+                  <Text style={lbl}>Pace</Text>
+                  <Text style={{ fontFamily: fonts.semiBold, fontSize: 13.5 * u, color: '#fff', marginTop: 2 * u }}>{pace}</Text>
+                </View>
+                <View>
+                  <Text style={lbl}>Time</Text>
+                  <Text style={{ fontFamily: fonts.semiBold, fontSize: 13.5 * u, color: '#fff', marginTop: 2 * u }}>{time}</Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View style={{ alignItems: 'center' }}>
+              <Image source={require('../../../assets/logo-mark.png')} style={{ width: 22 * u, height: 22 * u, tintColor: '#fff' }} resizeMode="contain" />
+              <View style={{ marginTop: 14 * u }}>
+                <RoutePolylineSvg route={route} size={78 * u} color="#fff" />
+              </View>
+              <Text style={[lbl, { marginTop: 14 * u }]}>Distance</Text>
+              <Text style={{ fontFamily: fonts.bold, fontSize: 30 * u, color: '#fff', marginTop: 2 * u }}>
+                {dist} {unit}
+              </Text>
+              <View style={{ width: 74 * u, height: 1, backgroundColor: 'rgba(255,255,255,0.35)', marginTop: 10 * u }} />
+              <Text style={[lbl, { marginTop: 12 * u }]}>Pace</Text>
+              <Text style={{ fontFamily: fonts.bold, fontSize: 21 * u, color: '#fff', marginTop: 2 * u }}>{pace}</Text>
+              <View style={{ width: 74 * u, height: 1, backgroundColor: 'rgba(255,255,255,0.35)', marginTop: 10 * u }} />
+              <Text style={[lbl, { marginTop: 12 * u }]}>Time</Text>
+              <Text style={{ fontFamily: fonts.bold, fontSize: 21 * u, color: '#fff', marginTop: 2 * u }}>{time}</Text>
+            </View>
+          )}
+        </DraggableCard>
+      </View>
+    );
+  }
+
+  /* ---- lift: details ---- */
+  if (design === 'details') {
     return (
       <View style={{ width: w, height: h, backgroundColor: '#0d0d0f', padding: pad, overflow: 'hidden' }}>
+        <Backdrop photoUri={photoUri} shade={0.62} />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Brand u={u} />
-          <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, color: 'rgba(255,255,255,0.55)' }}>{fmtWhen(summary.endedAt)}</Text>
+          <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, color: 'rgba(255,255,255,0.6)' }}>{fmtWhen(summary.endedAt)}</Text>
         </View>
 
-        <Text style={{ fontFamily: fonts.semiBold, fontSize: 12.5 * u, letterSpacing: 1.2 * u, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', marginTop: 20 * u }} numberOfLines={1}>
+        <Text style={{ fontFamily: fonts.semiBold, fontSize: 12.5 * u, letterSpacing: 1.2 * u, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', marginTop: 20 * u }} numberOfLines={1}>
           {summary.title}
         </Text>
         <Text style={{ fontFamily: fonts.extraBold, fontSize: 46 * u, color: '#fff', letterSpacing: -1 * u, marginTop: 2 * u }}>
@@ -228,11 +379,7 @@ function ShareCanvas({ design, w, summary, health, primary, known, photoUri, det
         </View>
 
         <View style={{ marginTop: 18 * u, gap: 8 * u }}>
-          {detailRows.length === 0 && (
-            <Text style={{ fontFamily: fonts.regular, fontSize: 12 * u, color: 'rgba(255,255,255,0.45)' }}>
-              {isRun ? 'No GPS splits recorded.' : 'No sets recorded.'}
-            </Text>
-          )}
+          {detailRows.length === 0 && <Text style={{ fontFamily: fonts.regular, fontSize: 12 * u, color: 'rgba(255,255,255,0.5)' }}>No sets recorded.</Text>}
           {detailRows.map((r, i) => (
             <View
               key={i}
@@ -243,62 +390,29 @@ function ShareCanvas({ design, w, summary, health, primary, known, photoUri, det
                 gap: 10 * u,
                 paddingVertical: 9 * u,
                 paddingHorizontal: 13 * u,
-                backgroundColor: 'rgba(255,255,255,0.07)',
+                backgroundColor: 'rgba(255,255,255,0.09)',
                 borderRadius: 13 * u,
               }}
             >
               <Text style={{ flex: 1, fontFamily: fonts.semiBold, fontSize: 12.5 * u, color: '#fff' }} numberOfLines={1}>
                 {r.left}
               </Text>
-              <Text style={{ fontFamily: fonts.medium, fontSize: 11.5 * u, color: 'rgba(255,255,255,0.75)' }} numberOfLines={1}>
+              <Text style={{ fontFamily: fonts.medium, fontSize: 11.5 * u, color: 'rgba(255,255,255,0.78)' }} numberOfLines={1}>
                 {r.right}
               </Text>
             </View>
           ))}
-          {detailOverflow > 0 && (
-            <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, color: 'rgba(255,255,255,0.45)', textAlign: 'center' }}>+{detailOverflow} more</Text>
-          )}
+          {detailOverflow > 0 && <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>+{detailOverflow} more</Text>}
         </View>
       </View>
     );
   }
 
-  if (design === 'grid') {
-    const tiles = secondary.slice(0, 4);
-    return (
-      <View style={{ width: w, height: h, backgroundColor: '#0a0a0b', padding: pad, justifyContent: 'space-between' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Brand u={u} />
-          <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, color: 'rgba(255,255,255,0.55)' }}>{fmtWhen(summary.endedAt)}</Text>
-        </View>
-        <View style={{ alignItems: 'center', gap: 14 * u }}>
-          <Visual summary={summary} health={health} w={w - pad * 2} h={170 * u} color="#fff" />
-        </View>
-        <View>
-          <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, letterSpacing: 1.2 * u, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase' }}>{primary.label}</Text>
-          <Text style={{ fontFamily: fonts.extraBold, fontSize: 60 * u, color: '#fff', letterSpacing: -1.5 * u }}>
-            {primary.value}
-            <Text style={{ fontFamily: fonts.semiBold, fontSize: 20 * u, color: 'rgba(255,255,255,0.65)' }}> {primary.unit}</Text>
-          </Text>
-        </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 * u }}>
-          {tiles.map((t) => (
-            <View key={t.label} style={{ width: (w - pad * 2 - 10 * u) / 2, borderRadius: 16 * u, borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', padding: 14 * u }}>
-              <Text style={{ fontFamily: fonts.medium, fontSize: 9.5 * u, letterSpacing: 0.8 * u, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase' }}>{t.label}</Text>
-              <Text style={{ fontFamily: fonts.bold, fontSize: 22 * u, color: '#fff', marginTop: 4 * u }}>
-                {t.value}
-                {t.unit ? <Text style={{ fontFamily: fonts.medium, fontSize: 11 * u, color: 'rgba(255,255,255,0.6)' }}> {t.unit}</Text> : null}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  }
-
+  /* ---- lift: neon ---- */
   if (design === 'neon') {
     return (
       <View style={{ width: w, height: h, backgroundColor: '#050807', padding: pad, justifyContent: 'space-between', overflow: 'hidden' }}>
+        <Backdrop photoUri={photoUri} shade={0.6} />
         <Svg style={StyleSheet.absoluteFill} width={w} height={h}>
           <Defs>
             <RadialGradient id="ng" cx="50%" cy="42%" r="55%">
@@ -328,7 +442,7 @@ function ShareCanvas({ design, w, summary, health, primary, known, photoUri, det
     );
   }
 
-  // photo: your own picture behind the numbers
+  /* ---- lift: stats — the big numbers along the bottom ---- */
   return (
     <View style={{ width: w, height: h, backgroundColor: '#151517', overflow: 'hidden', justifyContent: 'space-between', padding: pad }}>
       {photoUri ? <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}
@@ -372,26 +486,25 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
   const [health, setHealth] = useState<WorkoutHealthStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'summary' | 'share'>(startInShare ? 'share' : 'summary');
-  const [design, setDesign] = useState<Design>('detailed');
+  const [design, setDesign] = useState<Design>(summary.kind === 'run' ? 'card' : 'details');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [previewW, setPreviewW] = useState(0);
+  const [area, setArea] = useState({ w: 0, h: 0 });
   const [busy, setBusy] = useState(false);
   const shotRef = useRef<ViewShot>(null);
 
   const { primary, tiles, known } = buildStats(summary, health, unitSystem);
   const splits = useMemo(() => splitsFromRoute(summary.route, unitSystem), [summary.route, unitSystem]);
-  // The exercise/split breakdown for the "Details" share design — capped so
-  // a long workout or run still fits the card, with the rest counted below it.
-  const detailRows = useMemo<DetailRow[]>(() => {
-    if (summary.kind === 'run') {
-      return splits.slice(0, 8).map((sp) => ({ left: `Km ${sp.label}`, right: sp.pace }));
-    }
-    return summary.exerciseSets.slice(0, 6).map((ex) => ({
-      left: ex.name,
-      right: ex.sets.map((st) => `${weightValueAuto(st.weight, unitSystem)}×${st.reps}`).join('  '),
-    }));
-  }, [summary, splits, unitSystem]);
-  const detailOverflow = summary.kind === 'run' ? Math.max(0, splits.length - 8) : Math.max(0, summary.exerciseSets.length - 6);
+  // The exercise breakdown for the lift "Details" card — capped so a long
+  // workout still fits, with the rest counted below it.
+  const detailRows = useMemo<DetailRow[]>(
+    () =>
+      summary.exerciseSets.slice(0, 6).map((ex) => ({
+        left: ex.name,
+        right: ex.sets.map((st) => `${weightValueAuto(st.weight, unitSystem)}×${st.reps}`).join('  '),
+      })),
+    [summary, unitSystem],
+  );
+  const detailOverflow = Math.max(0, summary.exerciseSets.length - 6);
 
   const load = useCallback(async () => {
     if (!useHealthStore.getState().connected) return;
@@ -442,7 +555,6 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, allowsMultipleSelection: false });
       if (!result.canceled && result.assets[0]) {
         setPhotoUri(result.assets[0].uri);
-        setDesign('photo');
       }
     } catch {
       Alert.alert("Couldn't open your photos", 'Please try again.');
@@ -469,29 +581,34 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
 
   /* ---- share mode ---- */
   if (mode === 'share') {
+    const designs = isRun ? RUN_DESIGNS : LIFT_DESIGNS;
+    // The card is as large as fits above the buttons, never taller than the screen.
+    const canvasW = Math.floor(Math.min(area.w, (area.h * 9) / 16));
     return (
       <View style={[styles.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }]}>
         <View style={styles.shareTop}>
           <Pressable style={styles.roundBtn} onPress={() => setMode('summary')}>
             <Text style={styles.roundBtnText}>‹</Text>
           </Pressable>
-          <Text style={styles.shareTitle}>Share your workout</Text>
+          <Text style={styles.shareTitle}>Share your {isRun ? 'run' : 'workout'}</Text>
           <View style={{ width: 34 }} />
         </View>
-        <ScrollView contentContainerStyle={styles.shareScroll} showsVerticalScrollIndicator={false}>
-          <View style={styles.designRow}>
-            {DESIGNS.map(([id, label]) => (
-              <Pressable key={id} style={[styles.designChip, design === id && styles.designChipActive]} onPress={() => setDesign(id)}>
-                <Text style={[styles.designChipText, design === id && styles.designChipTextActive]}>{label}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <View style={styles.previewFrame} onLayout={(e) => setPreviewW(e.nativeEvent.layout.width)}>
-            {previewW > 0 && (
+
+        <View style={styles.designRow}>
+          {designs.map(([id, label]) => (
+            <Pressable key={id} style={[styles.designChip, design === id && styles.designChipActive]} onPress={() => setDesign(id)}>
+              <Text style={[styles.designChipText, design === id && styles.designChipTextActive]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={styles.previewArea} onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
+          {canvasW > 0 && (
+            <View style={[styles.previewFrame, { width: canvasW }]}>
               <ViewShot ref={shotRef} options={{ format: 'png', quality: 1 }}>
                 <ShareCanvas
                   design={design}
-                  w={previewW}
+                  w={canvasW}
                   summary={summary}
                   health={health}
                   primary={primary}
@@ -499,15 +616,25 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
                   photoUri={photoUri}
                   detailRows={detailRows}
                   detailOverflow={detailOverflow}
+                  unitSystem={unitSystem}
                 />
               </ViewShot>
-            )}
-          </View>
-          <Pressable style={styles.photoBtn} onPress={pickPhoto}>
+            </View>
+          )}
+        </View>
+        {isRun && <Text style={styles.hint}>Drag the card to move it · pinch to resize</Text>}
+
+        <View style={styles.photoRow}>
+          <Pressable style={[styles.photoBtn, { flex: 1 }]} onPress={pickPhoto}>
             <TrPlusIcon size={14} color={colors.text} />
-            <Text style={styles.photoBtnText}>{photoUri ? 'Change background photo' : 'Add your own photo'}</Text>
+            <Text style={styles.photoBtnText}>{photoUri ? 'Change photo' : 'Add your own photo'}</Text>
           </Pressable>
-        </ScrollView>
+          {photoUri && (
+            <Pressable style={styles.photoBtn} onPress={() => setPhotoUri(null)}>
+              <Text style={styles.photoBtnText}>Remove</Text>
+            </Pressable>
+          )}
+        </View>
         <View style={styles.footer}>
           <Pressable style={styles.primaryBtn} onPress={share} disabled={busy}>
             {busy ? <ActivityIndicator size="small" color={colors.bg} /> : <TrShareIcon size={16} color={colors.bg} />}
@@ -726,13 +853,15 @@ const styles = StyleSheet.create({
   shareTitle: { fontFamily: fonts.semiBold, fontSize: 16, color: colors.text },
   roundBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   roundBtnText: { fontSize: 22, lineHeight: 24, color: colors.text, marginTop: -2 },
-  shareScroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, gap: 14 },
-  designRow: { flexDirection: 'row', gap: 8 },
+  designRow: { flexDirection: 'row', gap: 8, marginHorizontal: 20, marginTop: 4 },
+  previewArea: { flex: 1, alignItems: 'center', justifyContent: 'center', marginHorizontal: 20, marginVertical: 12 },
+  hint: { textAlign: 'center', fontFamily: fonts.regular, fontSize: 11.5, color: colors.neutral500, marginBottom: 10 },
+  photoRow: { flexDirection: 'row', gap: 8, marginHorizontal: 20 },
   designChip: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 999, borderWidth: 1, borderColor: colors.divider },
   designChipActive: { backgroundColor: colors.text, borderColor: colors.text },
   designChipText: { fontFamily: fonts.medium, fontSize: 13, color: colors.neutral500 },
   designChipTextActive: { color: colors.bg },
-  previewFrame: { width: '100%', borderRadius: 22, overflow: 'hidden', backgroundColor: colors.surface },
-  photoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: colors.divider, borderRadius: 999, paddingVertical: 13 },
+  previewFrame: { borderRadius: 22, overflow: 'hidden', backgroundColor: colors.surface },
+  photoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: colors.divider, borderRadius: 999, paddingVertical: 13, paddingHorizontal: 18 },
   photoBtnText: { fontFamily: fonts.medium, fontSize: 14, color: colors.text },
 });

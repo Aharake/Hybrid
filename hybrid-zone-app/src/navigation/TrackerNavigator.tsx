@@ -29,6 +29,12 @@ import { LogActivityFormScreen } from '@/screens/tracker/LogActivityFormScreen';
 
 const Stack = createNativeStackNavigator<TrackerStackParamList>();
 
+// Switching tabs resets the stack to the chosen tab, which the stack would
+// otherwise animate like a pushed page (sliding in from the right, even when
+// going "back" to Home). Tab roots crossfade quickly instead — it reads as a
+// tab switch, and the identical tab bar on each screen stays visually steady.
+const TAB_ROOT_OPTIONS = { animation: 'fade', animationDuration: 160, gestureEnabled: false } as const;
+
 // One flat stack for the new Tracker design — see plan: the source has no nested
 // tab navigators, and most of the old design's separate routes are in-screen
 // sheets/overlays here instead, so the route list shrinks to 8. Each of the 4
@@ -38,14 +44,14 @@ export function TrackerNavigator() {
   return (
     <View style={{ flex: 1 }}>
     <Stack.Navigator initialRouteName="HomeTab" screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
-      <Stack.Screen name="HomeTab" component={HomeTab} />
-      <Stack.Screen name="StrengthTab" component={StrengthTab} />
+      <Stack.Screen name="HomeTab" component={HomeTab} options={TAB_ROOT_OPTIONS} />
+      <Stack.Screen name="StrengthTab" component={StrengthTab} options={TAB_ROOT_OPTIONS} />
       <Stack.Screen name="SessionOverview" component={SessionOverview} />
       <Stack.Screen name="ExerciseDetail" component={ExerciseDetail} />
-      <Stack.Screen name="RunningTab" component={RunningTab} />
+      <Stack.Screen name="RunningTab" component={RunningTab} options={TAB_ROOT_OPTIONS} />
       <Stack.Screen name="ViewAllOverview" component={ViewAllOverview} />
       <Stack.Screen name="AllActivities" component={AllActivities} />
-      <Stack.Screen name="AccountTab" component={AccountTab} />
+      <Stack.Screen name="AccountTab" component={AccountTab} options={TAB_ROOT_OPTIONS} />
       <Stack.Screen name="CustomWorkout" component={CustomWorkoutScreen} />
       <Stack.Screen name="ProgramEditor" component={ProgramEditorScreen} />
       <Stack.Screen name="AnalyticsHub" component={AnalyticsHubScreen} />

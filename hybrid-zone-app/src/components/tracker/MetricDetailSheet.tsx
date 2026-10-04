@@ -1,44 +1,16 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts } from '@/theme/trackerTokens';
+import { TrLockIcon } from '@/icons';
 import { Sheet } from './Sheet';
+import { DialGauge, SegmentBar } from './RingGraphics';
+import { MiniRing } from './MiniRing';
 import { useViewRingData } from './RingCluster';
 import { useTrackerStore, METRIC_INFO } from '@/store/trackerStore';
 import { CONSISTENCY_READY_DAYS, VOLUME_READY_DAYS } from '@/engine/stats';
 
-// A plain circular progress ring — used both for the one big "headline" ring
-// and the smaller Weekly Goal breakdown rings below it.
-function Ring({ size, stroke, pct, color, dim, children }: { size: number; stroke: number; pct: number; color: string; dim: string; children?: React.ReactNode }) {
-  const r = size / 2 - stroke / 2 - 1;
-  const c = 2 * Math.PI * r;
-  const fill = Math.min(1, Math.max(0, pct));
-  return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={StyleSheet.absoluteFill}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={dim} strokeWidth={stroke} fill="none" />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={color}
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={c}
-          strokeDashoffset={c * (1 - fill)}
-          fill="none"
-          rotation={-90}
-          origin={`${size / 2}, ${size / 2}`}
-        />
-      </Svg>
-      {children}
-    </View>
-  );
-}
-
-// Lifts / Running / Steps — only the ones that actually count toward this
-// account's Weekly Goal get a ring (see weeklyGoalWeights in engine/stats.ts),
-// so this renders 1, 2 or 3 depending on what's scheduled and connected.
+// Lifts / Running / Steps — only the parts that count toward this person's
+// goal get a ring, so this shows 3, 2 or just 1 of them.
 const PART_COLOR = { lift: colors.strength, run: colors.running, steps: '#2dd4bf' } as const;
 const PART_LABEL = { lift: 'Lifts', run: 'Running', steps: 'Steps' } as const;
 
@@ -48,9 +20,7 @@ function GoalBreakdown({ parts }: { parts: { lift: number | null; run: number | 
     <View style={styles.breakdownRow}>
       {entries.map((k) => (
         <View key={k} style={styles.breakdownItem}>
-          <Ring size={74} stroke={7} pct={parts[k]!} color={PART_COLOR[k]} dim={colors.neutral300}>
-            <Text style={styles.breakdownPct}>{Math.round(parts[k]! * 100)}%</Text>
-          </Ring>
+          <MiniRing pct={parts[k]!} color={PART_COLOR[k]} dim={colors.neutral300} size={84} />
           <Text style={styles.breakdownLabel}>{PART_LABEL[k]}</Text>
         </View>
       ))}
@@ -61,8 +31,11 @@ function GoalBreakdown({ parts }: { parts: { lift: number | null; run: number | 
 const RING_COLOR = { goal: colors.rcGoal, consistency: colors.rcConsistency, volume: colors.rcVolume } as const;
 const RING_DIM = { goal: colors.rcGoalDim, consistency: colors.rcConsistencyDim, volume: colors.rcVolumeDim } as const;
 
+// The popup behind each Home ring. The ring graphic is the same one the Home
+// page uses (the tick dial for the goal, the segmented bar for the other two),
+// just bigger; below it, the parts that make it up, then a short explanation.
 export function MetricDetailSheet() {
-  const { metricDetailOpen, closeMetricDetail } = useTrackerStore();
+  const { metricDetailOpen, closeMetricDetail, openGoalSetup } = useTrackerStore();
   const data = useViewRingData();
 
   if (!metricDetailOpen) return null;
@@ -75,41 +48,64 @@ export function MetricDetailSheet() {
 
   return (
     <Sheet visible onClose={closeMetricDetail} zIndex={25} tall title={info.title}>
-      <View style={styles.ringSection}>
-        <Ring size={200} stroke={16} pct={ready ? pct : 0} color={RING_COLOR[metricDetailOpen]} dim={RING_DIM[metricDetailOpen]}>
-          {ready ? (
-            <>
+      <View style={styles.hero}>
+        {metricDetailOpen === 'goal' ? (
+          <DialGauge size={290} pct={pct} color={RING_COLOR.goal} dim={RING_DIM.goal}>
+            <Text style={styles.bigNum}>
+              {Math.round(pct * 100)}
+              <Text style={styles.bigPct}>%</Text>
+            </Text>
+            <Text style={styles.bigCaption}>OF WEEKLY GOAL</Text>
+          </DialGauge>
+        ) : (
+          <View style={styles.barBlock}>
+            {ready ? (
               <Text style={styles.bigNum}>
                 {Math.round(pct * 100)}
                 <Text style={styles.bigPct}>%</Text>
               </Text>
-              <Text style={styles.bigCaption}>THIS WEEK</Text>
-            </>
-          ) : (
-            <>
-              <Text style={styles.buildingNum}>{daysLeft}</Text>
-              <Text style={styles.bigCaption}>{daysLeft === 1 ? 'DAY LEFT' : 'DAYS LEFT'}</Text>
-            </>
-          )}
-        </Ring>
-
-        {metricDetailOpen === 'goal' && ready && <GoalBreakdown parts={data.goalParts} />}
+            ) : (
+              <View style={styles.lockedRow}>
+                <TrLockIcon size={20} color={colors.neutral500} />
+                <Text style={styles.lockedText}>{daysLeft === 1 ? 'Unlocks in 1 day' : `Unlocks in ${daysLeft} days`}</Text>
+              </View>
+            )}
+            <SegmentBar pct={ready ? pct : 0} color={RING_COLOR[metricDetailOpen]} dim={RING_DIM[metricDetailOpen]} height={22} gap={6} />
+          </View>
+        )}
       </View>
 
+      {metricDetailOpen === 'goal' && <GoalBreakdown parts={data.goalParts} />}
+
       <Text style={styles.body}>{info.body}</Text>
+
+      {metricDetailOpen === 'goal' && (
+        <Pressable
+          style={styles.editBtn}
+          onPress={() => {
+            closeMetricDetail();
+            openGoalSetup();
+          }}
+        >
+          <Text style={styles.editBtnText}>Edit goal</Text>
+        </Pressable>
+      )}
     </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  ringSection: { alignItems: 'center', gap: 22, paddingVertical: 8 },
-  bigNum: { fontFamily: fonts.semiBold, fontSize: 46, lineHeight: 50, color: colors.text, letterSpacing: -1 },
-  bigPct: { fontSize: 22, color: colors.neutral500 },
-  bigCaption: { fontFamily: fonts.semiBold, fontSize: 10.5, letterSpacing: 1, color: colors.neutral500, marginTop: 2 },
-  buildingNum: { fontFamily: fonts.semiBold, fontSize: 52, lineHeight: 56, color: colors.text },
-  breakdownRow: { flexDirection: 'row', gap: 22 },
+  hero: { alignItems: 'center', justifyContent: 'center', paddingTop: 6, paddingBottom: 4 },
+  barBlock: { alignSelf: 'stretch', gap: 22, paddingVertical: 30 },
+  bigNum: { fontFamily: fonts.semiBold, fontSize: 64, lineHeight: 68, color: colors.text, letterSpacing: -2, textAlign: 'center' },
+  bigPct: { fontSize: 28, color: colors.neutral500 },
+  bigCaption: { fontFamily: fonts.semiBold, fontSize: 11, letterSpacing: 1.2, color: colors.neutral500, marginTop: 2 },
+  lockedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  lockedText: { fontFamily: fonts.semiBold, fontSize: 22, color: colors.neutral500 },
+  breakdownRow: { flexDirection: 'row', justifyContent: 'center', gap: 26, marginTop: 4 },
   breakdownItem: { alignItems: 'center', gap: 8 },
-  breakdownPct: { fontFamily: fonts.semiBold, fontSize: 15, color: colors.text },
-  breakdownLabel: { fontFamily: fonts.medium, fontSize: 11.5, color: colors.neutral500 },
-  body: { fontSize: 13.5, lineHeight: 21, color: colors.neutral600, fontFamily: fonts.regular, marginTop: 20 },
+  breakdownLabel: { fontFamily: fonts.medium, fontSize: 12, color: colors.neutral500 },
+  body: { fontSize: 14, lineHeight: 21, color: colors.neutral600, fontFamily: fonts.regular, textAlign: 'center', marginTop: 10, paddingHorizontal: 6 },
+  editBtn: { alignSelf: 'center', borderWidth: 1, borderColor: colors.neutral400, borderRadius: 999, paddingVertical: 11, paddingHorizontal: 28, marginTop: 6 },
+  editBtnText: { fontFamily: fonts.semiBold, fontSize: 14, color: colors.text },
 });

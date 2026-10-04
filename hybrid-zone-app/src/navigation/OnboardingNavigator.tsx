@@ -16,6 +16,8 @@ import { SplitScreen } from '@/screens/onboarding/SplitScreen';
 import { SummaryScreen } from '@/screens/onboarding/SummaryScreen';
 import { LoadingScreen } from '@/screens/onboarding/LoadingScreen';
 import { PlanPreviewScreen } from '@/screens/onboarding/PlanPreviewScreen';
+import { FeaturePreviewScreen } from '@/screens/onboarding/FeaturePreviewScreen';
+import { ReferralScreen } from '@/screens/onboarding/ReferralScreen';
 import { PaywallScreen } from '@/screens/onboarding/PaywallScreen';
 import { OnboardingAuthScreen } from '@/screens/onboarding/OnboardingAuthScreen';
 
@@ -41,6 +43,8 @@ export function OnboardingNavigator() {
       <Stack.Screen name="Summary" component={SummaryScreen} />
       <Stack.Screen name="Loading" component={LoadingScreen} options={{ gestureEnabled: false }} />
       <Stack.Screen name="PlanPreview" component={PlanPreviewScreen} />
+      <Stack.Screen name="Features" component={FeaturePreviewScreen} />
+      <Stack.Screen name="Referral" component={ReferralScreen} />
       <Stack.Screen name="Paywall" component={PaywallScreen} />
       <Stack.Screen name="Auth" component={OnboardingAuthScreen} />
     </Stack.Navigator>

@@ -29,7 +29,7 @@ import {
   WorkoutSummaryData,
   groupSetsByExercise,
 } from '@/engine/records';
-import { StatsInput, computeDataHighlights } from '@/engine/stats';
+import { StatsInput, WeeklyGoalConfig, DEFAULT_WEEKLY_GOAL, computeDataHighlights } from '@/engine/stats';
 import { activityDaysAgo } from '@/engine/records';
 import { buildRunPlans } from '@/engine/programBuilder';
 import { useHealthStore } from '@/store/healthStore';
@@ -50,6 +50,7 @@ export interface SetEntry {
   weight: number;
   reps: number;
   done?: boolean; // checked off: locked in, and the only sets a finished workout saves
+  touched?: boolean; // typed into, as opposed to prefilled from last time
 }
 
 // A tile's definition — its numbers are computed live (engine/stats.ts), so
@@ -301,10 +302,11 @@ export const OVERVIEW_METRICS: Record<MetricContext, OverviewMetric[]> = {
     { id: 'done', label: 'Done', icon: 'done' },
     { id: 'heartrate', label: 'Resting HR', icon: 'heartrate', big: true },
     { id: 'trend', label: 'Weekly Trend', icon: 'trend', big: true },
-    { id: 'steps', label: 'Weekly Steps', icon: 'stepsIco' },
+    { id: 'steps', label: 'Steps', icon: 'stepsIco' },
+    { id: 'avg_steps', label: 'Avg Steps', icon: 'stepsIco' },
     { id: 'sleep', label: 'Avg Sleep', icon: 'sleep' },
     { id: 'workouts_month', label: 'Workouts', icon: 'done' },
-    { id: 'longest_streak', label: 'Longest Streak', icon: 'flameIco' },
+    { id: 'streak', label: 'Streak', icon: 'flameIco' },
     { id: 'active_days', label: 'Active Days', icon: 'active' },
   ],
   strength: [
@@ -312,11 +314,11 @@ export const OVERVIEW_METRICS: Record<MetricContext, OverviewMetric[]> = {
     { id: 'logged', label: 'Logged Workouts', icon: 'done' },
     { id: 'done', label: 'Done', icon: 'done' }, // computed live from the viewed day's session
     { id: 'prs', label: 'PRs This Week', icon: 'trophyIco' },
-    { id: 'total_sets', label: 'Total Sets', icon: 'layersIco' },
+    { id: 'total_sets', label: 'Sets this wk', icon: 'layersIco' },
     { id: 'avg_duration', label: 'Avg Duration', icon: 'clock' },
     { id: 'workout_streak', label: 'Workout Streak', icon: 'flameIco' },
     { id: 'main_lift', label: 'Top Lift', icon: 'trendUp' },
-    { id: 'muscle_groups', label: 'Muscle Groups', icon: 'layersIco' },
+    { id: 'muscle_groups', label: 'Muscles this wk', icon: 'layersIco' },
   ],
   running: [
     { id: 'steps_today', label: 'Steps Today', icon: 'stepsIco' },
@@ -331,12 +333,23 @@ export const OVERVIEW_METRICS: Record<MetricContext, OverviewMetric[]> = {
 };
 
 export const OVERVIEW_DEFAULTS: Record<MetricContext, Record<string, boolean>> = {
-  home: { burn: true, active: true, done: true, heartrate: true, trend: true, steps: false, sleep: false, workouts_month: false, longest_streak: false, active_days: false },
+  home: { burn: true, active: true, done: true, heartrate: true, trend: true, steps: false, avg_steps: false, sleep: false, workouts_month: false, streak: false, active_days: false },
   strength: { volume: true, logged: true, done: true, prs: false, total_sets: false, avg_duration: false, workout_streak: false, main_lift: false, muscle_groups: false },
   running: { steps_today: true, weekly_dist: true, avg_pace: true, runs_monthly: true, longest_run: false, elevation: false, fastest_5k: false, run_streak: false },
 };
 
 const METRIC_ORDER_KEY = 'hyvo.metricOrder';
+const WEEKLY_GOAL_KEY = 'hyvo.weeklyGoal';
+
+// The on-device copy of the Weekly Goal setup is kept per account, so it can
+// back up the account's own copy (e.g. if the server hasn't stored it) without
+// ever showing one person's choices to another on the same phone. Looked up
+// lazily: authStore imports this store, so importing it at the top would be circular.
+function weeklyGoalKey(): string | null {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const userId = (require('@/store/authStore') as typeof import('@/store/authStore')).useAuthStore.getState().user?.id;
+  return userId ? `${WEEKLY_GOAL_KEY}.${userId}` : null;
+}
 
 // The tiles for one page in the person's chosen order. Anything not in the saved
 // order (a tile added in a later version) goes after the ones that are.
@@ -378,18 +391,20 @@ export const LOGGABLE_ACTIVITY_TYPES: { id: ActivityType; label: string; default
   { id: 'other', label: 'Other', defaultTitle: 'Activity', hasDistance: false },
 ];
 
+// The short explanations under each ring's popup. Deliberately brief, and the
+// Weekly Goal's doesn't spell out how its parts are weighted.
 export const METRIC_INFO: Record<'goal' | 'consistency' | 'volume', { title: string; body: string }> = {
   goal: {
     title: 'Weekly Goal',
-    body: "A weighted mix of this week's strength sessions, runs and steps — 40% lifts, 40% running, 20% steps when all three apply. Drop running and it's 70% lifts / 30% steps; drop steps and it's 50/50 lifts and running; with only lifts scheduled, it's 100% lifts. Steps count toward your average daily target across the week, so a slow day is balanced out by a strong one. Starts tracking immediately.",
+    body: "Your week in one score: the lifts, runs and steps you've completed against your plan.",
   },
   consistency: {
     title: 'Consistency',
-    body: 'Of the sessions your program schedules this week, how many you completed on the day they were scheduled. A workout done on a different day still counts toward your Weekly Goal, but not toward Consistency. Starts tracking once your program is 7 days old, so it reflects a real week rather than a day or two.',
+    body: 'How many of your scheduled sessions you completed on the day they were planned. Unlocks after 7 days of training.',
   },
   volume: {
     title: 'Volume Trend',
-    body: "This week's total weight lifted (sets × reps × weight) compared with last week's. Over 100% means you've lifted more than last week; if you didn't train last week it shows 100% once you log a workout. Starts tracking once your program is 3 days old.",
+    body: "The total weight you've lifted this week compared with last week. Unlocks after 3 days of training.",
   },
 };
 
@@ -442,6 +457,13 @@ interface TrackerStore {
   // from the server's record once hydrated; set locally the moment a brand
   // new program is built, so a fresh signup doesn't read as "no program yet".
   programCreatedAt: number | null;
+  // Weekly Goal setup — what counts toward the ring and the daily step target.
+  // The ring has no data until this has been set up once (see GoalSetupSheet).
+  weeklyGoal: WeeklyGoalConfig;
+  setWeeklyGoal: (goal: WeeklyGoalConfig) => void;
+  goalSetupOpen: boolean;
+  openGoalSetup: () => void;
+  closeGoalSetup: () => void;
   // The account's saved records — the single source everything else (activities,
   // stats, records, history) is derived from.
   workoutLogs: WorkoutLogRecord[];
@@ -707,6 +729,16 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
 
   runSessions: {},
   programCreatedAt: null,
+  weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
+  setWeeklyGoal: (goal) => {
+    set({ weeklyGoal: goal });
+    const key = weeklyGoalKey();
+    if (key) SecureStore.setItemAsync(key, JSON.stringify(goal)).catch(() => {});
+    persistSettings({ weeklyGoal: goal });
+  },
+  goalSetupOpen: false,
+  openGoalSetup: () => set({ goalSetupOpen: true }),
+  closeGoalSetup: () => set({ goalSetupOpen: false }),
   setProgram: (sessions, runSessions, split, force) => {
     persistProgram(sessions, runSessions, split, force);
     set((s) => ({
@@ -775,6 +807,21 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
           activeSessionKey: Object.keys(sessions)[0] ?? s.activeSessionKey,
         }));
       }
+    }
+
+    // Weekly Goal setup: the account's copy, else this account's copy saved on
+    // this device (covers being offline, or a server that hasn't stored it).
+    {
+      const fromAccount = prefsRes.status === 'fulfilled' ? prefsRes.value?.settings?.weeklyGoal : undefined;
+      const key = weeklyGoalKey();
+      const fromDevice =
+        fromAccount || !key
+          ? undefined
+          : await SecureStore.getItemAsync(key)
+              .then((v) => (v ? (JSON.parse(v) as WeeklyGoalConfig) : undefined))
+              .catch(() => undefined);
+      const stored = fromAccount ?? fromDevice;
+      set({ weeklyGoal: stored ? { ...DEFAULT_WEEKLY_GOAL, ...stored } : { ...DEFAULT_WEEKLY_GOAL } });
     }
 
     // Tile order: the account's copy if there is one, else what this device saved.
@@ -848,6 +895,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       health: useHealthStore.getState().snapshot,
       unitSystem: s.unitSystem,
       programCreatedAt: s.programCreatedAt,
+      weeklyGoal: s.weeklyGoal,
     };
   },
 
@@ -1221,7 +1269,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     set((s) => {
       const list = s.sets[exId];
       if (!list || !list[idx] || list[idx].done) return {}; // a checked-off set is locked until it's unchecked
-      const next = list.map((row, i) => (i === idx ? { ...row, [field]: value } : row));
+      const next = list.map((row, i) => (i === idx ? { ...row, [field]: value, touched: true } : row));
       return { sets: { ...s.sets, [exId]: next } };
     }),
   // Renumbers the rest of the list after a delete — `num` is used both as

@@ -21,6 +21,7 @@ export async function syncOnboardingAnswers(fields: OnboardingFields): Promise<v
       includeRunning: fields.includeRunning,
       schedule: fields.schedule,
       planTier: fields.planTier,
+      referralCode: fields.referralCode,
     }),
   });
 }

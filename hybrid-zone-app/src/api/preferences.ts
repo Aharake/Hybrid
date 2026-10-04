@@ -7,6 +7,7 @@ export interface AppSettings {
   runType?: 'open' | 'distance' | 'interval';
   distanceGoal?: number;
   metricOrder?: Record<string, string[]>;
+  weeklyGoal?: { onboarded: boolean; includeRun: boolean; includeSteps: boolean; stepGoal: number };
 }
 
 export interface PreferencesPayload {

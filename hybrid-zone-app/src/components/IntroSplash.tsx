@@ -5,8 +5,8 @@ import { colors, fonts } from '@/theme/tokens';
 
 const MIN_SHOW_MS = 1500;
 const FADE_OUT_MS = 380;
-const LOGO_W = 104;
-const LOGO_H = Math.round((LOGO_W * 480) / 423); // logo-mark.png is 423 × 480
+const LOGO_W = 112;
+const LOGO_H = Math.round((LOGO_W * 1240) / 1108); // logo-mark.png is 1108 × 1240 (the HD source, 2× upscaled with a re-sharpened edge)
 
 // The launch screen: the Hyvo mark with the name under it, drawn by the app
 // itself (a vector font and the logo at its real size) instead of being baked

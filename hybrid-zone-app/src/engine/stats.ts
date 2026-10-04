@@ -12,6 +12,18 @@ import { ActivityItem, RunSessionPlan, Session, WorkoutLogRecord } from './recor
 import { computeRecords } from './achievements';
 import { UnitSystem, distanceUnitLabel, distanceValueOnly, fmtPaceFromSecPerKm, weightUnitLabel, weightValueOnly } from './units';
 
+// What counts toward the Weekly Goal ring, chosen in its setup. Lifts always
+// count; running and steps can be switched off. Until `onboarded`, the ring
+// has no data and just invites the person to set it up.
+export interface WeeklyGoalConfig {
+  onboarded: boolean;
+  includeRun: boolean;
+  includeSteps: boolean;
+  stepGoal: number; // target steps per day — the week's target is this × the days so far
+}
+
+export const DEFAULT_WEEKLY_GOAL: WeeklyGoalConfig = { onboarded: false, includeRun: true, includeSteps: true, stepGoal: 10_000 };
+
 export interface StatsInput {
   now: number;
   activities: ActivityItem[]; // every activity, strength included (derived from workoutLogs)
@@ -21,6 +33,7 @@ export interface StatsInput {
   health: HealthSnapshot | null;
   unitSystem: UnitSystem;
   programCreatedAt: number | null; // when the account's program was first created — the clock the rings' "ready after N days" waits are measured from
+  weeklyGoal: WeeklyGoalConfig;
 }
 
 export interface MetricResult {
@@ -34,7 +47,6 @@ export type MetricContext = 'home' | 'strength' | 'running';
 export type MetricBook = Record<MetricContext, Record<string, MetricResult>>;
 
 const NONE: MetricResult = { value: '—', unit: '' };
-const STEP_GOAL = 10_000;
 
 /* ---------------- helpers ---------------- */
 
@@ -89,37 +101,18 @@ function runsOf(activities: ActivityItem[]): ActivityItem[] {
   return activities.filter((a) => a.type === 'running' && a.runStats);
 }
 
-// Consecutive-day streaks over a set of local day keys ("2026-09-20").
-function keyToTs(key: string): number {
-  const [y, m, d] = key.split('-').map(Number);
-  return new Date(y, m - 1, d).getTime();
-}
-
-export function streaks(days: Set<string>, now: number): { current: number; longest: number } {
-  if (days.size === 0) return { current: 0, longest: 0 };
-  // Still alive if you've done something today or yesterday.
-  let cursor = startOfDay(now);
-  if (!days.has(dayKey(cursor))) cursor = addDays(cursor, -1);
-  let current = 0;
-  while (days.has(dayKey(cursor))) {
-    current++;
-    cursor = addDays(cursor, -1);
-  }
-  const sorted = [...days].map(keyToTs).sort((a, b) => a - b);
-  let longest = 1;
-  let run = 1;
-  for (let i = 1; i < sorted.length; i++) {
-    run = Math.round((sorted[i] - sorted[i - 1]) / DAY_MS) === 1 ? run + 1 : 1;
-    longest = Math.max(longest, run);
-  }
-  return { current, longest };
-}
-
 function activeDaySet(activities: ActivityItem[], type?: ActivityItem['type']): Set<string> {
   return new Set(activities.filter((a) => !type || a.type === type).map((a) => dayKey(a.date)));
 }
 
-function plannedCounts(sessions: Record<string, Session>, runSessions: Partial<Record<DayLabel, RunSessionPlan>>) {
+// A "streak" here is the number of different days something was logged — not
+// a run of consecutive days. Ten workouts on ten separate days is a 10-day
+// streak, and missing a day doesn't reset it.
+function streakDays(activities: ActivityItem[], type?: ActivityItem['type']): number {
+  return activeDaySet(activities, type).size;
+}
+
+export function plannedCounts(sessions: Record<string, Session>, runSessions: Partial<Record<DayLabel, RunSessionPlan>>) {
   const strength = Object.values(sessions).filter((s) => FULL_TO_DAY_LABEL[s.day]).length;
   return { strength, runs: Object.keys(runSessions).length };
 }
@@ -128,6 +121,7 @@ function plannedCounts(sessions: Record<string, Session>, runSessions: Partial<R
 
 export interface RingValues {
   goal: number; // 0-1
+  goalSetUp: boolean; // false until the person has gone through the Weekly Goal setup — the ring shows no data until then
   consistency: number; // 0-1
   volume: number; // 0+ (over 1 = more than last week)
   // The up-to-3 components that made up `goal` this week — null for one that
@@ -167,14 +161,14 @@ export const CONSISTENCY_READY_DAYS = 7;
 export const VOLUME_READY_DAYS = 3;
 
 export function computeRings(input: StatsInput, weekOffset: number): RingValues {
-  const { now, activities, workoutLogs, sessions, runSessions, health, programCreatedAt } = input;
+  const { now, activities, workoutLogs, sessions, runSessions, health, programCreatedAt, weeklyGoal } = input;
   const { start, end } = weekBounds(now, weekOffset);
   const inWeek = activities.filter((a) => inRange(a.date, start, end));
   const planned = plannedCounts(sessions, runSessions);
 
   const hasLift = planned.strength > 0;
-  const hasRun = planned.runs > 0;
-  const hasSteps = weekOffset === 0 && health?.weekSteps != null;
+  const hasRun = planned.runs > 0 && weeklyGoal.includeRun;
+  const hasSteps = weekOffset === 0 && weeklyGoal.includeSteps && health?.weekSteps != null;
 
   const liftPct = hasLift ? Math.min(1, inWeek.filter((a) => a.type === 'strength').length / planned.strength) : null;
   const runPct = hasRun ? Math.min(1, inWeek.filter((a) => a.type === 'running').length / planned.runs) : null;
@@ -182,7 +176,7 @@ export function computeRings(input: StatsInput, weekOffset: number): RingValues 
   // (averaged, not reset each day), so this stays a weekly measure like the
   // workouts and runs above — a slow Monday is balanced out by a big Tuesday.
   const daysSoFar = Math.max(1, daysBetween(start, now) + 1);
-  const stepsPct = hasSteps ? Math.min(1, health!.weekSteps! / (STEP_GOAL * daysSoFar)) : null;
+  const stepsPct = hasSteps ? Math.min(1, health!.weekSteps! / (weeklyGoal.stepGoal * daysSoFar)) : null;
 
   const weights = weeklyGoalWeights(hasLift, hasRun, hasSteps);
   const goal = (liftPct ?? 0) * weights.lift + (runPct ?? 0) * weights.run + (stepsPct ?? 0) * weights.steps;
@@ -216,7 +210,7 @@ export function computeRings(input: StatsInput, weekOffset: number): RingValues 
   const prevVol = volumeKg(workoutLogs, prev.start, prev.end);
   const volume = prevVol > 0 ? thisVol / prevVol : thisVol > 0 ? 1 : 0;
 
-  return { goal, consistency, volume, goalParts, consistencyReady, volumeReady, daysTracked };
+  return { goal, goalSetUp: weeklyGoal.onboarded, consistency, volume, goalParts, consistencyReady, volumeReady, daysTracked };
 }
 
 // Account → Data Highlights: your best consistency and peak training load
@@ -324,7 +318,7 @@ export function computeMetrics(input: StatsInput): MetricBook {
 
   const thisWeek = activities.filter((a) => inRange(a.date, wk.start, wk.end));
   const planned = plannedCounts(sessions, runSessions);
-  const anyStreaks = streaks(activeDaySet(activities), now);
+  const anyStreak = streakDays(activities);
   const runs = runsOf(activities);
 
   // Minutes of activity per weekday this week → the Weekly Trend bars.
@@ -345,17 +339,18 @@ export function computeMetrics(input: StatsInput): MetricBook {
     done: plannedTotal > 0 ? { value: String(doneThisWeek), unit: `/${plannedTotal}` } : { value: String(doneThisWeek), unit: 'this wk' },
     heartrate: health?.heartRateBars ? { value: health.restingHeartRate != null ? String(health.restingHeartRate) : '', unit: 'bpm', bars: health.heartRateBars } : NONE,
     trend: trendBars ? { value: '', unit: '', bars: trendBars } : NONE,
-    steps: health?.weekSteps != null ? { value: fmtCompact(health.weekSteps), unit: '' } : NONE,
+    steps: health?.steps != null ? { value: fmtInt(health.steps), unit: '' } : NONE,
+    avg_steps: health?.weekSteps != null ? { value: fmtInt(health.weekSteps / Math.max(1, daysBetween(wk.start, now) + 1)), unit: '/day' } : NONE,
     sleep: health?.avgSleepMinutes != null ? { value: `${Math.floor(health.avgSleepMinutes / 60)}h ${health.avgSleepMinutes % 60}m`, unit: 'avg' } : NONE,
     workouts_month: { value: String(activities.filter((a) => a.date >= monthStart).length), unit: 'this mo' },
-    longest_streak: { value: String(anyStreaks.longest), unit: anyStreaks.longest === 1 ? 'day' : 'days' },
+    streak: { value: String(anyStreak), unit: anyStreak === 1 ? 'day' : 'days' },
     active_days: { value: String(activeDaySet(thisWeek).size), unit: '/7' },
   };
 
   const strengthLogsWeek = workoutLogs.filter((l) => inRange(l.date, wk.start, wk.end));
   const withDuration = workoutLogs.filter((l) => l.durationSec != null && l.durationSec > 0);
   const topLift = topLiftTrend(workoutLogs, now);
-  const strengthStreak = streaks(activeDaySet(activities, 'strength'), now).current;
+  const strengthStreak = streakDays(activities, 'strength');
   const wUnit = weightUnitLabel(unitSystem);
 
   const strength: Record<string, MetricResult> = {
@@ -363,7 +358,7 @@ export function computeMetrics(input: StatsInput): MetricBook {
     logged: { value: String(workoutLogs.length), unit: '' },
     done: NONE, // shown live from today's session by the Strength tab
     prs: { value: String(personalRecordsThisWeek(workoutLogs, wk.start, wk.end)), unit: '' },
-    total_sets: { value: String(strengthLogsWeek.reduce((n, l) => n + l.sets.length, 0)), unit: 'this wk' },
+    total_sets: { value: String(strengthLogsWeek.reduce((n, l) => n + l.sets.length, 0)), unit: '' },
     avg_duration: withDuration.length
       ? { value: String(Math.round(withDuration.reduce((n, l) => n + (l.durationSec as number), 0) / withDuration.length / 60)), unit: 'min' }
       : NONE,
@@ -375,7 +370,7 @@ export function computeMetrics(input: StatsInput): MetricBook {
           label: topLift.name,
         }
       : { value: '—', unit: '', label: 'Top Lift' },
-    muscle_groups: { value: String(musclesTrainedThisWeek(workoutLogs, sessions, wk.start, wk.end)), unit: 'this wk' },
+    muscle_groups: { value: String(musclesTrainedThisWeek(workoutLogs, sessions, wk.start, wk.end)), unit: '' },
   };
 
   const runsThisWeek = runs.filter((a) => inRange(a.date, wk.start, wk.end));
@@ -386,7 +381,7 @@ export function computeMetrics(input: StatsInput): MetricBook {
   const weekRoutes = runsThisWeek.map((a) => a.runStats?.route ?? []).filter((r) => r.length > 1);
   const hasElevation = weekRoutes.some(routeHasAltitude);
   const climbM = weekRoutes.reduce((n, r) => n + elevationGainM(r), 0);
-  const runStreak = streaks(activeDaySet(activities, 'running'), now).current;
+  const runStreak = streakDays(activities, 'running');
   const fastest5k = computeRecords(runs).find((r) => r.id === 'pr5k');
   const longest = runs.reduce((m, a) => Math.max(m, (a.runStats as NonNullable<ActivityItem['runStats']>).distance), 0);
   const dUnit = distanceUnitLabel(unitSystem);
@@ -423,6 +418,6 @@ export function computeAccountStats(input: StatsInput): AccountStats {
   return {
     activitiesLogged: input.activities.length,
     totalRunKm: runs.reduce((n, a) => n + (a.runStats as NonNullable<ActivityItem['runStats']>).distance, 0),
-    dayStreak: streaks(activeDaySet(input.activities), input.now).current,
+    dayStreak: streakDays(input.activities),
   };
 }

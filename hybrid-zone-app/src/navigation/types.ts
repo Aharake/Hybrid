@@ -13,6 +13,8 @@ export type OnboardingStackParamList = {
   Summary: undefined;
   Loading: undefined;
   PlanPreview: undefined;
+  Features: undefined;
+  Referral: undefined;
   Paywall: undefined;
   Auth: undefined;
 };

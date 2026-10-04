@@ -34,6 +34,7 @@ export interface OnboardingFields {
   dayPickMode: Discipline;
   schedule: WeekSchedule;
   planTier: 'annual' | 'monthly';
+  referralCode: string | null; // optional, entered on the screen before the paywall
 }
 
 interface OnboardingStore extends OnboardingFields {
@@ -66,6 +67,7 @@ const initialFields: OnboardingFields = {
   dayPickMode: 'strength',
   schedule: emptyWeek(),
   planTier: 'annual',
+  referralCode: null,
 };
 
 export const useOnboardingStore = create<OnboardingStore>((set, get) => ({

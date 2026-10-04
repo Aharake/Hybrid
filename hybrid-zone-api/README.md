@@ -196,4 +196,5 @@ is the exception, populated by the RevenueCat webhook rather than the client.
 - Health data sync (Apple Health / Google Health)
 - Push notifications
 - Analytics
+- Referral codes are only recorded (`OnboardingAnswers.referralCode`, entered on the screen before the paywall) — nothing validates them against a list of codes or applies a reward/discount yet
 - Revoking a Sign in with Apple token when an account is deleted (Apple's guidelines ask for it; it needs a Sign in with Apple key from your Apple developer account)

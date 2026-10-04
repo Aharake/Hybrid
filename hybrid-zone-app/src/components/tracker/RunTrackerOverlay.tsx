@@ -247,7 +247,8 @@ export function RunTrackerOverlay() {
         {runStatus === 'running' && (
           <>
             <StatsRow run={run} distance={run.distance} hasInterval={hasInterval} intervalReps={intervalReps} unitSystem={unitSystem} />
-            <Pressable style={[styles.btnFilled, { marginTop: 0 }]} onPress={toggleRunPause}>
+            {/* Full width, so it's at least as wide as the Continue button it turns into. */}
+            <Pressable style={[styles.btnFilled, styles.btnPause]} onPress={toggleRunPause}>
               <Text style={styles.btnFilledText}>Pause</Text>
             </Pressable>
           </>
@@ -341,6 +342,7 @@ const styles = StyleSheet.create({
   btnOutlineText: { fontFamily: fonts.semiBold, fontSize: 14, color: colors.running },
   btnFilled: { flex: 1, alignItems: 'center', borderRadius: 999, paddingVertical: 15, backgroundColor: colors.running, marginTop: 0 },
   btnFilledText: { fontFamily: fonts.semiBold, fontSize: 14, color: '#fff' },
+  btnPause: { flex: 0, alignSelf: 'stretch', width: '100%' },
   slideTrack: { position: 'relative', height: 58, borderRadius: 999, backgroundColor: colors.text, overflow: 'hidden' },
   slideFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: colors.running, borderRadius: 999 },
   slideLabel: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },

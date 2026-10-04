@@ -13,6 +13,15 @@ const bodySchema = z.object({
       distanceGoal: z.number().min(1).max(100).optional(),
       // Order of the overview tiles per page, e.g. { home: ['burn', 'steps'] }.
       metricOrder: z.record(z.string(), z.array(z.string().max(40)).max(40)).optional(),
+      // What counts toward the Weekly Goal ring, and the daily step target.
+      weeklyGoal: z
+        .object({
+          onboarded: z.boolean(),
+          includeRun: z.boolean(),
+          includeSteps: z.boolean(),
+          stepGoal: z.number().int().min(1000).max(50000),
+        })
+        .optional(),
     })
     .optional(),
 });
