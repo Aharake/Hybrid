@@ -24,8 +24,17 @@ export async function customExercisesRoutes(app: FastifyInstance) {
       reply.code(400).send({ error: parsed.error.flatten() });
       return;
     }
+    // Saving a name the account already has returns the existing one instead of
+    // adding a duplicate (the app tries to save every typed-in exercise).
+    const existing = await prisma.customExercise.findFirst({
+      where: { userId: user.id, name: { equals: parsed.data.name.trim(), mode: 'insensitive' } },
+    });
+    if (existing) {
+      reply.send(existing);
+      return;
+    }
     const exercise = await prisma.customExercise.create({
-      data: { userId: user.id, ...parsed.data },
+      data: { userId: user.id, name: parsed.data.name.trim(), group: parsed.data.group },
     });
     reply.code(201).send(exercise);
   });
