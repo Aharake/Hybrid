@@ -7,6 +7,8 @@ import { TrChevLeftIcon, TrChevRightIcon } from '@/icons';
 import { useAuthStore } from '@/store/authStore';
 import { useSubscriptionStore } from '@/store/subscriptionStore';
 import { API_BASE_URL } from '@/api/client';
+import { healthSourceName } from '@/engine/health';
+import { STORE_SUBSCRIPTION_SHORT } from '@/engine/storeText';
 
 export function PrivacySettingsScreen() {
   const navigation = useNavigation();
@@ -26,7 +28,7 @@ export function PrivacySettingsScreen() {
 
   const confirmDelete = () => {
     const subscriptionNote = isPro
-      ? '\n\nYou have an active Hyvo Pro subscription — deleting your account does not cancel it. Cancel it from your device\'s App Store / Play Store subscription settings to stop billing.'
+      ? `\n\nYou have an active Hyvo Pro subscription — deleting your account does not cancel it. Cancel it from your device's ${STORE_SUBSCRIPTION_SHORT} to stop billing.`
       : '';
     Alert.alert(
       'Delete your account?',
@@ -51,7 +53,7 @@ export function PrivacySettingsScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Text style={styles.blurb}>
           Hyvo stores your account, profile photo, program, workout history, and run history (including GPS routes for tracked runs)
-          so it's available across devices. Health data from Apple Health / Health Connect stays on your device. Nothing is sold or
+          so it's available across devices. Health data from {healthSourceName} stays on your device. Nothing is sold or
           used for advertising.
         </Text>
 

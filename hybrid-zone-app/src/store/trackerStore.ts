@@ -15,7 +15,8 @@ import { startRunTracking, stopRunTracking } from '@/engine/locationTask';
 import { getProgram, saveProgram, type ProgramPayload } from '@/api/program';
 import { getPreferences, savePreferences, type AppSettings } from '@/api/preferences';
 import { getRunActivities, saveRunActivity, deleteRunActivity, type RunActivityResponse } from '@/api/runActivities';
-import { saveCustomExercise } from '@/api/customExercises';
+import { saveCustomExercise, getCustomExercises } from '@/api/customExercises';
+import { vibrateRestOver, scheduleRestOver, cancelRestOver } from '@/engine/restAlert';
 import { EXERCISE_POOL, MuscleGroupKey, deriveMuscleGroups } from '@/engine/exerciseLibrary';
 import {
   ActivityItem,
@@ -51,6 +52,14 @@ export interface SetEntry {
   reps: number;
   done?: boolean; // checked off: locked in, and the only sets a finished workout saves
   touched?: boolean; // typed into, as opposed to prefilled from last time
+  fresh?: boolean; // just added: its boxes are highlighted until it's checked off
+}
+
+// An exercise the person typed in themselves, kept on their account so it's
+// offered again next time instead of being typed from scratch.
+export interface SavedExercise {
+  name: string;
+  group: string;
 }
 
 // A tile's definition — its numbers are computed live (engine/stats.ts), so
@@ -557,6 +566,13 @@ interface TrackerStore {
   removeSet: (exId: string, idx: number) => void;
   toggleSetDone: (exId: string, idx: number) => void;
   addSetTo: (exId: string) => void;
+  // "exerciseId:rowIndex" of the set that should grab keyboard focus (the one
+  // just added), cleared once it has.
+  focusSetKey: string | null;
+  clearFocusSet: () => void;
+  customExercises: SavedExercise[];
+  saveNewCustomExercise: (name: string, group: string) => void;
+  renameSession: (oldKey: SessionKey, newName: string) => { ok: boolean; error?: string };
 
   // overview metric toggles
   enabled: Record<MetricContext, Record<string, boolean>>;
@@ -723,7 +739,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       customExerciseCounter: s.customExerciseCounter + exercises.length,
     }));
     persistProgram(get().sessions, get().runSessions);
-    exercises.filter((ex) => ex.group === 'Custom').forEach((ex) => saveCustomExercise({ name: ex.name, group: ex.group }).catch(() => {}));
+    exercises.filter((ex) => ex.group === 'Custom').forEach((ex) => get().saveNewCustomExercise(ex.name, ex.group));
     return uniqueKey;
   },
 
@@ -759,12 +775,27 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
   accountLoaded: false,
   hydrateFromBackend: async () => {
     set({ accountLoaded: false });
-    const [programRes, prefsRes, runActivitiesRes, workoutLogsRes] = await Promise.allSettled([
+    const [programRes, prefsRes, runActivitiesRes, workoutLogsRes, customExercisesRes] = await Promise.allSettled([
       getProgram(),
       getPreferences(),
       getRunActivities(),
       getWorkoutLogs(),
+      getCustomExercises(),
     ]);
+
+    // The exercises this person has typed in before, one per name (older
+    // accounts may have saved the same name more than once).
+    if (customExercisesRes.status === 'fulfilled') {
+      const seen = new Set<string>();
+      const saved: SavedExercise[] = [];
+      customExercisesRes.value.forEach((e) => {
+        const k = e.name.trim().toLowerCase();
+        if (!k || seen.has(k)) return;
+        seen.add(k);
+        saved.push({ name: e.name.trim(), group: e.group });
+      });
+      set({ customExercises: saved.sort((a, b) => a.name.localeCompare(b.name)) });
+    }
 
     // Records first, so the program below can show real "previous" weights.
     if (workoutLogsRes.status === 'fulfilled') set({ workoutLogs: workoutLogsRes.value.map(workoutLogFromResponse) });
@@ -1009,7 +1040,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
         addExerciseSearch: '',
       };
     });
-    if (group === 'Custom') saveCustomExercise({ name, group }).catch(() => {});
+    if (group === 'Custom') get().saveNewCustomExercise(name, group);
   },
   removeExerciseFromCustomSession: (sessionName, exId) =>
     set((s) => {
@@ -1298,15 +1329,39 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       const lastOfHistory = lastSession?.sets[lastSession.sets.length - 1];
       const weight = fromHistory?.weight ?? lastOfHistory?.weight ?? ex?.previous ?? 0;
       const reps = fromHistory?.reps ?? lastOfHistory?.reps ?? 0;
-      const next = [...list, { num: idx + 1, weight, reps, done: false }];
-      return { sets: { ...s.sets, [exId]: next } };
+      // Only the newest set is highlighted, and the cursor jumps to its weight box.
+      const next = [...list.map((row) => (row.fresh ? { ...row, fresh: false } : row)), { num: idx + 1, weight, reps, done: false, fresh: true }];
+      return { sets: { ...s.sets, [exId]: next }, focusSetKey: `${exId}:${idx}` };
     }),
+  focusSetKey: null,
+  clearFocusSet: () => set({ focusSetKey: null }),
   toggleSetDone: (exId, idx) =>
     set((s) => {
       const list = s.sets[exId];
       if (!list || !list[idx]) return {};
-      return { sets: { ...s.sets, [exId]: list.map((row, i) => (i === idx ? { ...row, done: !row.done } : row)) } };
+      return { sets: { ...s.sets, [exId]: list.map((row, i) => (i === idx ? { ...row, done: !row.done, fresh: false } : row)) } };
     }),
+
+  // Renames a workout. Workouts are keyed by their name, so this re-keys the
+  // program (keeping its order), follows the open workout, and syncs to the
+  // account. Past workouts keep the name they were saved under.
+  renameSession: (oldKey, newName) => {
+    const name = newName.trim().replace(/\s+/g, ' ');
+    if (!name) return { ok: false, error: 'Give the workout a name.' };
+    if (name.length > 40) return { ok: false, error: 'Keep the name under 40 characters.' };
+    if (name === oldKey) return { ok: true };
+    const { sessions } = get();
+    if (!sessions[oldKey]) return { ok: false, error: 'That workout is no longer in your program.' };
+    if (Object.keys(sessions).some((k) => k !== oldKey && k.toLowerCase() === name.toLowerCase())) {
+      return { ok: false, error: 'You already have a workout with that name.' };
+    }
+    set((s) => ({
+      sessions: Object.fromEntries(Object.entries(s.sessions).map(([k, v]) => [k === oldKey ? name : k, v])),
+      activeSessionKey: s.activeSessionKey === oldKey ? name : s.activeSessionKey,
+    }));
+    persistProgram(get().sessions, get().runSessions);
+    return { ok: true };
+  },
 
   enabled: { home: { ...OVERVIEW_DEFAULTS.home }, strength: { ...OVERVIEW_DEFAULTS.strength }, running: { ...OVERVIEW_DEFAULTS.running } },
   order: defaultOrder(),
@@ -1390,7 +1445,17 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       };
     });
     persistProgram(get().sessions, get().runSessions);
-    if (group === 'Custom') saveCustomExercise({ name, group }).catch(() => {});
+    if (group === 'Custom') get().saveNewCustomExercise(name, group);
+  },
+  customExercises: [],
+  // Remembers a typed-in exercise on the account (once per name) so the Add
+  // Exercise lists offer it next time.
+  saveNewCustomExercise: (name, group) => {
+    const clean = name.trim();
+    if (!clean) return;
+    if (get().customExercises.some((e) => e.name.toLowerCase() === clean.toLowerCase())) return;
+    set((s) => ({ customExercises: [...s.customExercises, { name: clean, group }] }));
+    saveCustomExercise({ name: clean, group }).catch(() => {});
   },
 
   workout: { active: false, seconds: 0, startedAt: null },
@@ -1424,6 +1489,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       restTimer: { ...s.restTimer, status: 'idle' },
       workoutSnapshotCounts: null,
     }));
+    cancelRestOver().catch(() => {});
   },
   finishWorkout: async (opts) => {
     const { sets, activeSessionKey, sessions, workout } = get();
@@ -1439,6 +1505,7 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
     });
     const date = Date.now();
     const localId = `local-${date}`;
+    cancelRestOver().catch(() => {}); // no "rest over" buzz after the workout has ended
     const record: WorkoutLogRecord = { id: localId, sessionKey: activeSessionKey, date, durationSec, sets: newSets };
     set((s) => {
       const base = { workout: { active: false, seconds: 0, startedAt: null }, restTimer: { ...s.restTimer, status: 'idle' as const }, workoutSnapshotCounts: null, sets: nextSets };
@@ -1489,24 +1556,44 @@ export const useTrackerStore = create<TrackerStore>((set, get) => ({
       const remaining = s.restTimer.status !== 'running' ? duration : s.restTimer.remaining;
       return { restTimer: { ...s.restTimer, duration, remaining } };
     }),
-  startRestTimer: () => set((s) => ({ restTimer: { ...s.restTimer, status: 'running', endsAt: Date.now() + s.restTimer.remaining * 1000 } })),
-  pauseRestTimer: () => set((s) => ({ restTimer: { ...s.restTimer, status: 'paused', endsAt: null } })),
-  resumeRestTimer: () => set((s) => ({ restTimer: { ...s.restTimer, status: 'running', endsAt: Date.now() + s.restTimer.remaining * 1000 } })),
-  finishRestTimer: () =>
-    set((s) => ({ restTimer: { ...s.restTimer, status: 'idle', cycles: s.restTimer.cycles + 1, remaining: s.restTimer.duration } })),
+  // The end time is also handed to the system as a local notification, so the
+  // phone still buzzes when it's locked or the app is in the background.
+  startRestTimer: () => {
+    set((s) => ({ restTimer: { ...s.restTimer, status: 'running', endsAt: Date.now() + s.restTimer.remaining * 1000 } }));
+    scheduleRestOver(get().restTimer.remaining).catch(() => {});
+  },
+  pauseRestTimer: () => {
+    set((s) => ({ restTimer: { ...s.restTimer, status: 'paused', endsAt: null } }));
+    cancelRestOver().catch(() => {});
+  },
+  resumeRestTimer: () => {
+    set((s) => ({ restTimer: { ...s.restTimer, status: 'running', endsAt: Date.now() + s.restTimer.remaining * 1000 } }));
+    scheduleRestOver(get().restTimer.remaining).catch(() => {});
+  },
+  finishRestTimer: () => {
+    set((s) => ({ restTimer: { ...s.restTimer, status: 'idle', cycles: s.restTimer.cycles + 1, remaining: s.restTimer.duration } }));
+    cancelRestOver().catch(() => {});
+  },
   // Derived from the stored end time, not decremented — so if the app was
   // backgrounded (screen locked, phone off) for the whole rest period or
   // part of it, the next tick catches up to the real remaining time instead
   // of silently freezing while JS wasn't running.
-  tickRestTimer: () =>
+  tickRestTimer: () => {
+    let finished = false;
     set((s) => {
       if (!s.restTimer.endsAt) return {};
       const remaining = Math.max(0, Math.round((s.restTimer.endsAt - Date.now()) / 1000));
       if (remaining <= 0) {
+        finished = true;
         return { restTimer: { ...s.restTimer, status: 'idle', cycles: s.restTimer.cycles + 1, remaining: s.restTimer.duration, endsAt: null } };
       }
       return { restTimer: { ...s.restTimer, remaining } };
-    }),
+    });
+    if (finished) {
+      vibrateRestOver();
+      cancelRestOver().catch(() => {});
+    }
+  },
 
   exerciseDetailTab: 'sets',
   selectExerciseTab: (id) => set({ exerciseDetailTab: id }),

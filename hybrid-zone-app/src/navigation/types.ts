@@ -1,4 +1,5 @@
 export type OnboardingStackParamList = {
+  Features: undefined;
   LocationPermission: undefined;
   Experience: undefined;
   Biometrics: undefined;
@@ -13,7 +14,6 @@ export type OnboardingStackParamList = {
   Summary: undefined;
   Loading: undefined;
   PlanPreview: undefined;
-  Features: undefined;
   Paywall: undefined;
   Auth: undefined;
 };

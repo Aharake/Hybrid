@@ -9,12 +9,16 @@ import { useTrackerStore, EXERCISE_POOL, MuscleGroupKey } from '@/store/trackerS
 // "Add Exercise" button). The source's DOM-refocus hack after each keystroke isn't
 // needed here — a controlled TextInput doesn't lose focus on re-render.
 export function AddExerciseSheet() {
-  const { addExerciseFor, addExerciseSearch, closeAddExercise, setAddExerciseSearch, sessions, addExerciseToSession } = useTrackerStore();
+  const { addExerciseFor, addExerciseSearch, closeAddExercise, setAddExerciseSearch, sessions, addExerciseToSession, customExercises } = useTrackerStore();
   if (!addExerciseFor) return null;
 
   const already = new Set(sessions[addExerciseFor].exercises.map((e) => e.name.toLowerCase()));
   const rawQuery = (addExerciseSearch || '').trim();
   const query = rawQuery.toLowerCase();
+
+  // Exercises this person typed in before — offered again so they're never retyped.
+  const mine = customExercises.filter((e) => !already.has(e.name.toLowerCase()) && (!query || e.name.toLowerCase().includes(query)));
+  const myNamesLower = customExercises.map((e) => e.name.toLowerCase());
 
   const groups = (Object.keys(EXERCISE_POOL) as MuscleGroupKey[])
     .map((group) => ({
@@ -24,8 +28,8 @@ export function AddExerciseSheet() {
     .filter((g) => g.filtered.length > 0);
 
   const allPoolNamesLower = Object.values(EXERCISE_POOL).flat().map((n) => n.toLowerCase());
-  const showCustomAdd = !!query && !allPoolNamesLower.includes(query) && !already.has(query);
-  const anyResults = groups.length > 0;
+  const showCustomAdd = !!query && !allPoolNamesLower.includes(query) && !myNamesLower.includes(query) && !already.has(query);
+  const anyResults = groups.length > 0 || mine.length > 0;
 
   return (
     <Sheet visible onClose={closeAddExercise} title="Add Exercise" tall>
@@ -41,6 +45,19 @@ export function AddExerciseSheet() {
           <Text style={styles.customRowText}>Add "{rawQuery}"</Text>
           <TrPlusIcon size={15} color={colors.strength} />
         </Pressable>
+      )}
+      {mine.length > 0 && (
+        <View style={{ gap: 8 }}>
+          <Text style={typography.kicker}>Your exercises</Text>
+          <View style={{ gap: 8 }}>
+            {mine.map((e) => (
+              <Pressable key={e.name} style={styles.option} onPress={() => addExerciseToSession(e.name, 'Custom')}>
+                <Text style={styles.optionText}>{e.name}</Text>
+                <TrPlusIcon size={15} color={colors.text} />
+              </Pressable>
+            ))}
+          </View>
+        </View>
       )}
       {anyResults
         ? groups.map(({ group, filtered }) => (

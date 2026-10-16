@@ -14,8 +14,8 @@ import { colors as tc, fonts as tf } from '@/theme/trackerTokens';
 import { emptyWeek, setDay } from '@/engine/schedule';
 import type { OnboardingStackParamList } from '@/navigation/types';
 
-// A tour of what's inside, shown after "Your plan is ready" and before the
-// payment step. Each slide is a small drawn copy of the real screen
+// A tour of what's inside — the very first onboarding screen, before the
+// questions start. Each slide is a small drawn copy of the real screen
 // (not a screenshot), so it always matches the app's look.
 
 /* ---------------- the five previews ---------------- */
@@ -184,7 +184,7 @@ export function FeaturePreviewScreen() {
   const onScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => setIndex(Math.round(e.nativeEvent.contentOffset.x / width));
 
   const next = () => {
-    if (last) navigation.navigate('Paywall');
+    if (last) navigation.navigate('LocationPermission');
     else scrollRef.current?.scrollTo({ x: (index + 1) * width, animated: true });
   };
 
@@ -208,8 +208,8 @@ export function FeaturePreviewScreen() {
         ))}
       </View>
       <View style={styles.footer}>
-        <PrimaryButton label={last ? 'Continue' : 'Next'} onPress={next} />
-        {!last && <PrimaryButton label="Skip" variant="ghost" onPress={() => navigation.navigate('Paywall')} />}
+        <PrimaryButton label={last ? 'Get started' : 'Next'} onPress={next} />
+        {!last && <PrimaryButton label="Skip" variant="ghost" onPress={() => navigation.navigate('LocationPermission')} />}
       </View>
     </SafeAreaView>
   );

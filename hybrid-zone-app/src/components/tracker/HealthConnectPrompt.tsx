@@ -14,11 +14,13 @@ const POINTS = [
 
 // Shown once, the first time the tracker opens after sign-up (or after an
 // update, for anyone who hasn't connected yet). It explains what the data is
-// for *before* the system permission sheet appears, which is what Apple's
-// review guidelines expect. Answering either way means it never comes back;
-// connecting later is always possible from Profile → Connected Apps.
+// for *before* the system permission sheet appears. Apple's guideline 5.1.1(iv)
+// says the person must always go on to the system request afterwards — so
+// there is one "Continue" button and no way to dismiss it or put it off; the
+// system sheet is where they say yes or no. Whatever they answer, this never
+// comes back, and the choice can be changed from Profile → Connected Apps.
 export function HealthConnectPrompt() {
-  const { supported, connected, prompted, promptReady, syncing, error, connect, markPrompted } = useHealthStore();
+  const { supported, connected, prompted, promptReady, syncing, connect, markPrompted } = useHealthStore();
   const [show, setShow] = useState(false);
 
   // Let the Home screen appear first so the sheet doesn't fight the transition.
@@ -30,17 +32,16 @@ export function HealthConnectPrompt() {
 
   if (!show || prompted || connected) return null;
 
-  const handleConnect = async () => {
-    const ok = await connect();
-    if (ok) setShow(false);
-  };
-  const handleLater = () => {
+  const handleContinue = async () => {
+    await connect();
+    // The system sheet has been answered (or wasn't available): either way
+    // this explanation is done.
     markPrompted();
     setShow(false);
   };
 
   return (
-    <Sheet visible onClose={handleLater} title={`Connect ${healthSourceName}`} zIndex={70}>
+    <Sheet visible onClose={() => {}} dismissible={false} title={`Connect ${healthSourceName}`} zIndex={70}>
       <Text style={styles.lead}>Hyvo can read your activity from {healthSourceName} and keep it up to date on its own, so you never log it twice.</Text>
       <View style={styles.list}>
         {POINTS.map(({ Icon, text }) => (
@@ -59,12 +60,8 @@ export function HealthConnectPrompt() {
         </View>
       </View>
       <Text style={styles.fine}>Hyvo only reads this data to show it to you. It isn’t sold or used for advertising. You choose exactly what to share on the next screen.</Text>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable style={styles.primary} onPress={handleConnect} disabled={syncing}>
-        {syncing ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={styles.primaryText}>Connect {healthSourceName}</Text>}
-      </Pressable>
-      <Pressable style={styles.later} onPress={handleLater}>
-        <Text style={styles.laterText}>Not now</Text>
+      <Pressable style={styles.primary} onPress={handleContinue} disabled={syncing}>
+        {syncing ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={styles.primaryText}>Continue</Text>}
       </Pressable>
     </Sheet>
   );
@@ -77,9 +74,6 @@ const styles = StyleSheet.create({
   ico: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   rowText: { flex: 1, fontFamily: fonts.medium, fontSize: 14, color: colors.text },
   fine: { fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 17, color: colors.neutral500 },
-  error: { fontFamily: fonts.regular, fontSize: 12.5, color: colors.red },
   primary: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, borderRadius: 999, paddingVertical: 15 },
   primaryText: { fontFamily: fonts.semiBold, fontSize: 15, color: colors.bg },
-  later: { alignItems: 'center', paddingVertical: 8 },
-  laterText: { fontFamily: fonts.medium, fontSize: 14, color: colors.neutral500 },
 });

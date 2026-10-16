@@ -769,7 +769,7 @@ function SummaryBody({ summary }: { summary: WorkoutSummaryData }) {
             <Text style={styles.cardTitle}>Add steps and heart rate</Text>
             <Text style={styles.cardBody}>Connect {healthSourceName} and this summary fills in calories, steps and heart rate for every workout.</Text>
             <Pressable style={styles.connectBtn} onPress={handleConnect}>
-              <Text style={styles.connectBtnText}>Connect {healthSourceName}</Text>
+              <Text style={styles.connectBtnText}>Continue</Text>
             </Pressable>
           </View>
         )}

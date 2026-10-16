@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import {
   HealthSnapshot,
@@ -88,7 +88,10 @@ export const useHealthStore = create<HealthStore>((set, get) => ({
       if (!(await isHealthAvailable())) {
         set({
           syncing: false,
-          error: `${healthSourceName} isn't available on this device. On Android, install or update the Health Connect app first.`,
+          error:
+            Platform.OS === 'android'
+              ? `${healthSourceName} isn't available on this device. Install or update the Health Connect app first.`
+              : `${healthSourceName} isn't available on this device.`,
         });
         return false;
       }

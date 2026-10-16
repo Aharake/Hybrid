@@ -110,7 +110,7 @@ export function ConnectedAppsScreen() {
                     numbers instead of estimates.
                   </Text>
                   <Pressable style={[styles.btn, styles.btnFilled, { marginTop: 14 }]} onPress={connect} disabled={syncing}>
-                    {syncing ? <ActivityIndicator color={colors.bg} /> : <Text style={styles.btnFilledText}>Connect {healthSourceName}</Text>}
+                    {syncing ? <ActivityIndicator color={colors.bg} /> : <Text style={styles.btnFilledText}>Continue</Text>}
                   </Pressable>
                 </>
               )}

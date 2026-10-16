@@ -7,6 +7,7 @@ import { CheckCircleBigIcon } from '@/icons';
 import { useSubscriptionStore } from '@/store/subscriptionStore';
 import { useAuthStore } from '@/store/authStore';
 import { API_BASE_URL } from '@/api/client';
+import { STORE_ACCOUNT } from '@/engine/storeText';
 
 const FEATURES = [
   'Personalized strength + running plan',
@@ -93,7 +94,7 @@ export function SubscriptionGate() {
         </Pressable>
 
         <Text style={styles.fine}>
-          Hyvo Pro is an auto-renewing subscription. Payment is charged to your Apple ID or Google Play account at confirmation and renews
+          Hyvo Pro is an auto-renewing subscription. Payment is charged to your {STORE_ACCOUNT} at confirmation and renews
           automatically unless you turn off auto-renew at least 24 hours before the period ends. Manage or cancel in your account subscription
           settings.
         </Text>

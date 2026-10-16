@@ -142,7 +142,7 @@ export function RunTrackerOverlay() {
   useEffect(() => {
     if (gpsIssue !== 'denied') return;
     Alert.alert('Location is off', 'Hyvo needs location access to record your route and distance. Turn it on in Settings, then start the run again.', [
-      { text: 'Not now', style: 'cancel' },
+      { text: 'Cancel', style: 'cancel' },
       { text: 'Open Settings', onPress: () => Linking.openSettings() },
     ]);
   }, [gpsIssue]);

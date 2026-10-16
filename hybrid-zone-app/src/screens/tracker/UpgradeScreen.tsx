@@ -6,6 +6,7 @@ import { colors, fonts, radius, typography } from '@/theme/trackerTokens';
 import { TrChevLeftIcon, TrTrophyIcon } from '@/icons';
 import { useSubscriptionStore, isRevenueCatConfigured } from '@/store/subscriptionStore';
 import { API_BASE_URL } from '@/api/client';
+import { STORE_ACCOUNT, STORE_SUBSCRIPTION_SETTINGS } from '@/engine/storeText';
 
 export function UpgradeScreen() {
   const navigation = useNavigation();
@@ -88,9 +89,9 @@ export function UpgradeScreen() {
         {isRevenueCatConfigured && (
           <View style={styles.legalBlock}>
             <Text style={styles.legalText}>
-              Hyvo Pro is an auto-renewing subscription. Payment is charged to your Apple ID or Google Play account when you confirm the purchase, and
+              Hyvo Pro is an auto-renewing subscription. Payment is charged to your {STORE_ACCOUNT} when you confirm the purchase, and
               the subscription renews automatically at the same price unless you turn off auto-renew at least 24 hours before the end of the current
-              period. Manage or cancel it any time in Settings → your name → Subscriptions (iPhone) or in Google Play. Deleting the app or your Hyvo
+              period. Manage or cancel it any time in {STORE_SUBSCRIPTION_SETTINGS}. Deleting the app or your Hyvo
               account does not cancel it.
             </Text>
             <Text style={styles.legalText}>

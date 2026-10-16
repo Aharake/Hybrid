@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { WorkoutTimerBlock } from '@/components/tracker/WorkoutTimerBlock';
 import { SwapExerciseSheet } from '@/components/tracker/SwapExerciseSheet';
 import { AddExerciseSheet } from '@/components/tracker/AddExerciseSheet';
+import { Sheet } from '@/components/tracker/Sheet';
 import { BarbellIcon, TrChartIcon, TrCheckIcon, TrChevLeftIcon, TrChevRightIcon, TrClockIcon, TrPlayIcon, TrPlusIcon, TrStrengthIcon, TrSwapIcon, TrTrashIcon } from '@/icons';
 import { colors, fonts, radius } from '@/theme/trackerTokens';
 import { getTodayFull } from '@/engine/calendar';
@@ -38,9 +39,29 @@ export function SessionOverview() {
     openAddExercise,
     viewExerciseAnalytics,
     unitSystem,
+    focusSetKey,
+    clearFocusSet,
+    renameSession,
   } = useTrackerStore();
 
   const [finishing, setFinishing] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
+
+  const openRename = () => {
+    setNameDraft(activeSessionKey);
+    setRenameError(null);
+    setRenameOpen(true);
+  };
+  const saveRename = () => {
+    const result = renameSession(activeSessionKey, nameDraft);
+    if (!result.ok) {
+      setRenameError(result.error ?? 'Could not rename this workout.');
+      return;
+    }
+    setRenameOpen(false);
+  };
 
   // What each exercise's sets were last time, set by set, for the Previous column.
   const previousSets = useMemo(() => {
@@ -153,7 +174,10 @@ export function SessionOverview() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <Text style={styles.kicker}>{titleText}</Text>
-        <Text style={styles.h1}>{activeSessionKey}</Text>
+        <Pressable onPress={openRename} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Rename workout ${activeSessionKey}`}>
+          <Text style={styles.h1}>{activeSessionKey}</Text>
+          <Text style={styles.renameHint}>Tap to rename</Text>
+        </Pressable>
         <View style={styles.pillsRow}>
           <View style={styles.pill}>
             <TrClockIcon size={12} color={colors.neutral500} />
@@ -255,6 +279,9 @@ export function SessionOverview() {
                               ? fmtWeightAuto(ex.previous, unitSystem)
                               : '—';
                           const valueColor = row.done || row.touched ? colors.text : colors.neutral500;
+                          // A just-added set: both boxes are outlined until it's checked off,
+                          // and the cursor starts in the weight box with its number selected.
+                          const isFresh = !!row.fresh && !row.done;
                           return (
                             <View key={i} style={styles.setRow}>
                               <View style={[styles.setBadge, styles.colSet]}>
@@ -263,18 +290,20 @@ export function SessionOverview() {
                               <Text style={[styles.setPrev, styles.colPrev]} numberOfLines={1} adjustsFontSizeToFit>
                                 {prevText}
                               </Text>
-                              <View style={[styles.numBox, styles.colInput]}>
+                              <View style={[styles.numBox, styles.colInput, isFresh && styles.numBoxFresh]}>
                                 <NumField
-                                  style={[styles.numInput, { color: valueColor }]}
+                                  style={[styles.numInput, { color: isFresh ? colors.text : valueColor }]}
                                   editable={!row.done}
                                   value={row.weight}
                                   toText={(kg) => weightValueAuto(kg, unitSystem)}
                                   onChange={(n) => updateSet(ex.id, i, 'weight', weightToKg(n, unitSystem))}
+                                  autoFocus={focusSetKey === `${ex.id}:${i}`}
+                                  onFocused={clearFocusSet}
                                 />
                               </View>
-                              <View style={[styles.numBox, styles.colInput]}>
+                              <View style={[styles.numBox, styles.colInput, isFresh && styles.numBoxFresh]}>
                                 <NumField
-                                  style={[styles.numInput, { color: valueColor }]}
+                                  style={[styles.numInput, { color: isFresh ? colors.text : valueColor }]}
                                   editable={!row.done}
                                   value={row.reps}
                                   toText={(n) => String(n)}
@@ -325,6 +354,27 @@ export function SessionOverview() {
 
       <SwapExerciseSheet />
       <AddExerciseSheet />
+      <Sheet visible={renameOpen} onClose={() => setRenameOpen(false)} title="Rename workout" zIndex={60}>
+        <TextInput
+          style={styles.renameInput}
+          value={nameDraft}
+          onChangeText={(v) => {
+            setNameDraft(v);
+            if (renameError) setRenameError(null);
+          }}
+          placeholder="Workout name"
+          placeholderTextColor={colors.neutral500}
+          maxLength={40}
+          autoFocus
+          selectTextOnFocus
+          returnKeyType="done"
+          onSubmitEditing={saveRename}
+        />
+        {!!renameError && <Text style={styles.renameError}>{renameError}</Text>}
+        <Pressable style={styles.renameSave} onPress={saveRename}>
+          <Text style={styles.renameSaveText}>Save</Text>
+        </Pressable>
+      </Sheet>
     </SafeAreaView>
   );
 }
@@ -332,7 +382,23 @@ export function SessionOverview() {
 // A number box that keeps the text being typed as-is while focused (so "82.",
 // or clearing the box to retype, isn't snapped back to "0"), and only
 // reformats from the stored value once the user leaves it.
-function NumField({ value, toText, onChange, style, editable = true }: { value: number; toText: (n: number) => string; onChange: (n: number) => void; style: object; editable?: boolean }) {
+function NumField({
+  value,
+  toText,
+  onChange,
+  style,
+  editable = true,
+  autoFocus = false,
+  onFocused,
+}: {
+  value: number;
+  toText: (n: number) => string;
+  onChange: (n: number) => void;
+  style: object;
+  editable?: boolean;
+  autoFocus?: boolean;
+  onFocused?: () => void;
+}) {
   const [text, setText] = useState(toText(value));
   const focused = useRef(false);
   useEffect(() => {
@@ -346,8 +412,10 @@ function NumField({ value, toText, onChange, style, editable = true }: { value: 
       editable={editable}
       value={text}
       selectTextOnFocus
+      autoFocus={autoFocus}
       onFocus={() => {
         focused.current = true;
+        onFocused?.();
       }}
       onBlur={() => {
         focused.current = false;
@@ -372,6 +440,11 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 24, gap: 16 },
   kicker: { fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase', color: colors.accent200, marginBottom: 2, fontFamily: fonts.regular },
   h1: { fontFamily: fonts.bold, fontSize: 34, letterSpacing: -0.4, color: colors.text, lineHeight: 36 },
+  renameHint: { fontSize: 11.5, color: colors.neutral500, marginTop: 4, fontFamily: fonts.regular },
+  renameInput: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.md, paddingVertical: 14, paddingHorizontal: 16, fontSize: 16, color: colors.text, fontFamily: fonts.medium },
+  renameError: { fontSize: 12.5, color: colors.red, fontFamily: fonts.regular },
+  renameSave: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, borderRadius: 999, paddingVertical: 15 },
+  renameSaveText: { fontFamily: fonts.semiBold, fontSize: 15, color: colors.bg },
   pillsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.surface, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13 },
   pillText: { fontSize: 11.5, fontFamily: fonts.semiBold, color: colors.text },
@@ -401,6 +474,7 @@ const styles = StyleSheet.create({
   setBadgeText: { fontFamily: fonts.bold, fontSize: 15, color: colors.text },
   setPrev: { fontSize: 15, color: colors.neutral500, fontFamily: fonts.medium },
   numBox: { height: 38, borderRadius: 12, borderWidth: 1, borderColor: colors.neutral400, backgroundColor: colors.bg, justifyContent: 'center' },
+  numBoxFresh: { borderWidth: 2, borderColor: colors.text },
   numInput: { textAlign: 'center', fontFamily: fonts.semiBold, fontSize: 17, padding: 0, width: '100%' },
   setCheck: { height: 38, borderRadius: 11, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
   setCheckDone: { backgroundColor: colors.green },

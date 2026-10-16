@@ -9,12 +9,16 @@ import { useTrackerStore, EXERCISE_POOL, MuscleGroupKey } from '@/store/trackerS
 // search/pool/custom-name pattern as AddExerciseSheet, but writes into
 // programEdit.customSessions instead of a live session.
 export function CustomSessionExerciseSheet() {
-  const { customSessionExercisePicker, addExerciseSearch, closeCustomSessionExercisePicker, setAddExerciseSearch, programEdit, addExerciseToCustomSession } =
+  const { customSessionExercisePicker, addExerciseSearch, closeCustomSessionExercisePicker, setAddExerciseSearch, programEdit, addExerciseToCustomSession, customExercises } =
     useTrackerStore();
   if (!customSessionExercisePicker || !programEdit) return null;
   const already = new Set((programEdit.customSessions[customSessionExercisePicker]?.exercises || []).map((e) => e.name.toLowerCase()));
   const rawQuery = (addExerciseSearch || '').trim();
   const query = rawQuery.toLowerCase();
+
+  // Exercises this person typed in before — offered again so they're never retyped.
+  const mine = customExercises.filter((e) => !already.has(e.name.toLowerCase()) && (!query || e.name.toLowerCase().includes(query)));
+  const myNamesLower = customExercises.map((e) => e.name.toLowerCase());
 
   const groups = (Object.keys(EXERCISE_POOL) as MuscleGroupKey[])
     .map((group) => ({
@@ -24,7 +28,7 @@ export function CustomSessionExerciseSheet() {
     .filter((g) => g.filtered.length > 0);
 
   const allPoolNamesLower = Object.values(EXERCISE_POOL).flat().map((n) => n.toLowerCase());
-  const showCustomAdd = !!query && !allPoolNamesLower.includes(query) && !already.has(query);
+  const showCustomAdd = !!query && !allPoolNamesLower.includes(query) && !myNamesLower.includes(query) && !already.has(query);
 
   return (
     <Sheet visible onClose={closeCustomSessionExercisePicker} title="Add Exercise" tall zIndex={50}>
@@ -40,6 +44,19 @@ export function CustomSessionExerciseSheet() {
           <Text style={styles.customRowText}>Add "{rawQuery}"</Text>
           <TrPlusIcon size={15} color={colors.strength} />
         </Pressable>
+      )}
+      {mine.length > 0 && (
+        <View style={{ gap: 8 }}>
+          <Text style={typography.kicker}>Your exercises</Text>
+          <View style={{ gap: 8 }}>
+            {mine.map((e) => (
+              <Pressable key={e.name} style={styles.option} onPress={() => addExerciseToCustomSession(e.name, 'Custom')}>
+                <Text style={styles.optionText}>{e.name}</Text>
+                <TrPlusIcon size={15} color={colors.text} />
+              </Pressable>
+            ))}
+          </View>
+        </View>
       )}
       {groups.map(({ group, filtered }) => (
         <View key={group} style={{ gap: 8 }}>

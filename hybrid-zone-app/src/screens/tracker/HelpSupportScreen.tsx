@@ -4,12 +4,13 @@ import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, radius, typography } from '@/theme/trackerTokens';
 import { TrBellIcon, TrChevLeftIcon } from '@/icons';
+import { healthSourceName } from '@/engine/health';
 
 const FAQS = [
   { q: 'How do I switch my training split?', a: 'Open the schedule area on Home or Strength and tap "Edit Program" — you can choose a preset split or build your own, then assign which days each session falls on.' },
   { q: 'Can I change units between km/kg and mi/lb?', a: 'Yes — Account > Units of Measure. Everything you log stays consistent no matter which you pick.' },
   { q: 'How are my rings calculated?', a: 'Weekly Goal is your progress on this week\'s planned workouts and runs (plus steps if you\'ve connected Health). Consistency is how many scheduled sessions you did on their scheduled day. Volume Trend compares the weight you lifted this week with last week. Tap any ring label on Home for details.' },
-  { q: 'Where do steps, sleep and heart rate come from?', a: 'From Apple Health (iPhone) or Health Connect (Android) once you connect it in Account > Connected Apps & Devices. Until then those tiles show "—".' },
+  { q: 'Where do steps, sleep and heart rate come from?', a: `From ${healthSourceName} once you connect it in Account > Connected Apps & Devices. Until then those tiles show "—".` },
   { q: 'How do I delete a workout or run I logged by mistake?', a: 'Open it from Recent Activity or Activities and tap the trash icon at the top right.' },
   { q: 'Can I export my logged workouts?', a: 'Yes — Account > Data Export shares a CSV of everything you’ve logged.' },
 ];

@@ -10,20 +10,22 @@ interface Props {
   tall?: boolean;
   zIndex?: number;
   headerExtra?: React.ReactNode; // for headers with more than a plain title (e.g. swap's subtitle)
+  // False for a sheet that has to be answered (no close button, back button ignored).
+  dismissible?: boolean;
   children: React.ReactNode;
 }
 
 // Matches Tracker (new).html's .sheet-scrim / .sheet — the bottom-sheet chrome
 // shared by every overlay/sheet in the new design.
-export function Sheet({ visible, onClose, title, tall, zIndex = 30, headerExtra, children }: Props) {
+export function Sheet({ visible, onClose, title, tall, zIndex = 30, headerExtra, dismissible = true, children }: Props) {
   useEffect(() => {
     if (!visible) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      onClose();
+      if (dismissible) onClose();
       return true;
     });
     return () => sub.remove();
-  }, [visible, onClose]);
+  }, [visible, onClose, dismissible]);
 
   if (!visible) return null;
   return (
@@ -33,9 +35,11 @@ export function Sheet({ visible, onClose, title, tall, zIndex = 30, headerExtra,
       <View style={[styles.sheet, tall && styles.sheetTall]}>
         <View style={styles.head}>
           {headerExtra ?? (title ? <Text style={styles.title}>{title}</Text> : <View />)}
-          <Pressable style={styles.closeBtn} onPress={onClose}>
-            <XIcon size={13} color={colors.neutral600} />
-          </Pressable>
+          {dismissible && (
+            <Pressable style={styles.closeBtn} onPress={onClose}>
+              <XIcon size={13} color={colors.neutral600} />
+            </Pressable>
+          )}
         </View>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           {children}

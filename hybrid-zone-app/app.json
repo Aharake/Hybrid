@@ -88,7 +88,7 @@
         "@kingstinct/react-native-healthkit",
         {
           "NSHealthShareUsageDescription": "Hyvo reads your steps, active energy, sleep and heart rate from Apple Health so your overview shows real numbers alongside your workouts and runs. Hyvo never writes to your health data.",
-          "NSHealthUpdateUsageDescription": false,
+          "NSHealthUpdateUsageDescription": "Hyvo does not write anything to Apple Health. It only reads the data you allow, and never saves workouts or measurements to it.",
           "background": false
         }
       ],

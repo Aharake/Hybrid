@@ -27,7 +27,8 @@ const Stack = createNativeStackNavigator<OnboardingStackParamList>();
 // port the mockup's manual `history` array.
 export function OnboardingNavigator() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+    <Stack.Navigator initialRouteName="Features" screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+      <Stack.Screen name="Features" component={FeaturePreviewScreen} />
       <Stack.Screen name="LocationPermission" component={LocationPermissionScreen} options={{ gestureEnabled: false }} />
       <Stack.Screen name="Experience" component={ExperienceScreen} />
       <Stack.Screen name="Biometrics" component={BiometricsScreen} />
@@ -42,7 +43,6 @@ export function OnboardingNavigator() {
       <Stack.Screen name="Summary" component={SummaryScreen} />
       <Stack.Screen name="Loading" component={LoadingScreen} options={{ gestureEnabled: false }} />
       <Stack.Screen name="PlanPreview" component={PlanPreviewScreen} />
-      <Stack.Screen name="Features" component={FeaturePreviewScreen} />
       <Stack.Screen name="Paywall" component={PaywallScreen} />
       <Stack.Screen name="Auth" component={OnboardingAuthScreen} />
     </Stack.Navigator>
